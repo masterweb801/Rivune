@@ -1,92 +1,131 @@
 package com.logicrealm.rivune;
 
 import android.app.Activity;
+import android.graphics.Color;
 import android.os.Build;
 import android.os.Bundle;
+import android.view.Gravity;
 import android.view.View;
-import android.view.WindowInsets;
-import android.view.WindowInsetsController;
+import android.view.WindowManager;
 import android.webkit.CookieManager;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.FrameLayout;
+import android.widget.TextView;
 
 public class MainActivity extends Activity {
 
-    // Permanent hosted RIVUNE website.
     private static final String START_URL = "https://rivune.page.gd/";
 
+    private FrameLayout root;
     private WebView webView;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        hideSystemBars();
-        webView = new WebView(this);
-        webView.setBackgroundColor(android.graphics.Color.BLACK);
-        setContentView(webView);
+        // Keep the app immersive without relying on newer WindowInsets APIs.
+        getWindow().setFlags(
+                WindowManager.LayoutParams.FLAG_FULLSCREEN,
+                WindowManager.LayoutParams.FLAG_FULLSCREEN
+        );
+        hideNavigationBar();
 
-        WebSettings settings = webView.getSettings();
-        settings.setJavaScriptEnabled(true);
-        settings.setDomStorageEnabled(true);
-        settings.setMediaPlaybackRequiresUserGesture(false);
-        settings.setAllowFileAccess(false);
-        settings.setAllowContentAccess(false);
-        settings.setJavaScriptCanOpenWindowsAutomatically(false);
-        settings.setSupportMultipleWindows(false);
-        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        settings.setSupportZoom(false);
-        settings.setBuiltInZoomControls(false);
-        settings.setDisplayZoomControls(false);
+        root = new FrameLayout(this);
+        root.setBackgroundColor(Color.BLACK);
+        setContentView(root);
 
-        CookieManager cookies = CookieManager.getInstance();
-        cookies.setAcceptCookie(true);
-        cookies.setAcceptThirdPartyCookies(webView, false);
+        openRivune();
+    }
 
-        webView.setWebViewClient(new WebViewClient());
-        webView.setWebChromeClient(new WebChromeClient());
+    private void hideNavigationBar() {
+        getWindow().getDecorView().setSystemUiVisibility(
+                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                        | View.SYSTEM_UI_FLAG_FULLSCREEN
+                        | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                        | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                        | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                        | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+        );
+    }
 
-        if (savedInstanceState != null && webView.restoreState(savedInstanceState) != null) {
-            // Restore the existing page and navigation state.
-        } else {
+    private void openRivune() {
+        try {
+            webView = new WebView(getApplicationContext());
+            webView.setBackgroundColor(Color.BLACK);
+            webView.setLayoutParams(new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+            ));
+
+            WebSettings settings = webView.getSettings();
+            settings.setJavaScriptEnabled(true);
+            settings.setDomStorageEnabled(true);
+            settings.setMediaPlaybackRequiresUserGesture(false);
+            settings.setSupportZoom(false);
+            settings.setBuiltInZoomControls(false);
+            settings.setDisplayZoomControls(false);
+            settings.setJavaScriptCanOpenWindowsAutomatically(false);
+            settings.setSupportMultipleWindows(false);
+            settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+
+            CookieManager cookieManager = CookieManager.getInstance();
+            cookieManager.setAcceptCookie(true);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                cookieManager.setAcceptThirdPartyCookies(webView, false);
+            }
+
+            webView.setWebChromeClient(new WebChromeClient());
+            webView.setWebViewClient(new WebViewClient() {
+                @Override
+                public boolean onRenderProcessGone(WebView view,
+                        android.webkit.RenderProcessGoneDetail detail) {
+                    // Android may terminate a WebView renderer under memory pressure.
+                    // Handle it here instead of allowing the whole app to close.
+                    if (view != null) {
+                        root.removeView(view);
+                        view.destroy();
+                    }
+                    webView = null;
+                    root.post(() -> openRivune());
+                    return true;
+                }
+            });
+
+            root.removeAllViews();
+            root.addView(webView);
             webView.loadUrl(START_URL);
+        } catch (RuntimeException error) {
+            showStartupError(error);
         }
     }
 
-    private void hideSystemBars() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            getWindow().setDecorFitsSystemWindows(false);
-            WindowInsetsController controller = getWindow().getInsetsController();
-            if (controller != null) {
-                controller.hide(WindowInsets.Type.statusBars() | WindowInsets.Type.navigationBars());
-                controller.setSystemBarsBehavior(
-                        WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                );
-            }
-        } else {
-            getWindow().getDecorView().setSystemUiVisibility(
-                    View.SYSTEM_UI_FLAG_FULLSCREEN
-                            | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                            | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                            | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-            );
-        }
+    private void showStartupError(RuntimeException error) {
+        TextView message = new TextView(this);
+        message.setTextColor(Color.WHITE);
+        message.setTextSize(16);
+        message.setGravity(Gravity.CENTER);
+        message.setPadding(32, 32, 32, 32);
+        message.setText(
+                "RIVUNE could not start its browser component.\n\n"
+                        + error.getClass().getSimpleName()
+                        + ": "
+                        + String.valueOf(error.getMessage())
+                        + "\n\nPlease update Android System WebView or Chrome, then reopen RIVUNE."
+        );
+        root.removeAllViews();
+        root.addView(message, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+        ));
     }
 
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
-        if (hasFocus) hideSystemBars();
-    }
-
-    @Override
-    protected void onSaveInstanceState(Bundle outState) {
-        if (webView != null) webView.saveState(outState);
-        super.onSaveInstanceState(outState);
+        if (hasFocus) hideNavigationBar();
     }
 
     @Override
@@ -114,9 +153,9 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         if (webView != null) {
             webView.stopLoading();
-            webView.loadUrl("about:blank");
             webView.setWebChromeClient(null);
             webView.setWebViewClient(null);
+            if (root != null) root.removeView(webView);
             webView.destroy();
             webView = null;
         }
