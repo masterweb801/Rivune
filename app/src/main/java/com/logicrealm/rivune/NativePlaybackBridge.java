@@ -322,7 +322,8 @@ final class NativePlaybackBridge {
     private MediaItem buildMediaItem(JSONObject track) {
         try {
             String id = trackId(track);
-            String streamUrl = resolveTrustedStreamUrl(track.optString("stream_url", ""));
+            String streamUrl = resolveTrustedStreamUrl(track.optString("stream_url",
+                    track.optString("streamUrl", "")));
             if (id == null || streamUrl == null) return null;
 
             MediaMetadata metadata = new MediaMetadata.Builder()
@@ -379,7 +380,7 @@ final class NativePlaybackBridge {
         Object value = track.opt("id");
         if (value == null || value == JSONObject.NULL) return null;
         String id = String.valueOf(value);
-        return id.matches("[0-9]{1,18}") ? id : null;
+        return id.matches("[A-Za-z0-9_-]{1,128}") ? id : null;
     }
 
     private int findMediaItem(List<MediaItem> items, String id) {
@@ -402,11 +403,7 @@ final class NativePlaybackBridge {
             JSONArray queueIds = new JSONArray();
             for (int i = 0; i < controller.getMediaItemCount(); i++) {
                 String id = controller.getMediaItemAt(i).mediaId;
-                try {
-                    queueIds.put(Long.parseLong(id));
-                } catch (Exception ignored) {
-                    queueIds.put(JSONObject.NULL);
-                }
+                queueIds.put(id);
             }
 
             String trackId = controller.getCurrentMediaItem() == null
@@ -415,7 +412,7 @@ final class NativePlaybackBridge {
             if (duration == C.TIME_UNSET || duration < 0) duration = 0;
 
             JSONObject state = new JSONObject();
-            state.put("trackId", trackId == null ? JSONObject.NULL : Long.parseLong(trackId));
+            state.put("trackId", trackId == null ? JSONObject.NULL : trackId);
             state.put("queueTrackIds", queueIds);
             state.put("currentIndex", controller.getCurrentMediaItemIndex());
             state.put("isPlaying", controller.isPlaying());
