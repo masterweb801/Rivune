@@ -83,9 +83,9 @@ final class NativePlaybackBridge {
 
     void onPageStarted(String url) {
         pageReady = false;
-        if (!isTrustedPage(url)) {
-            nativeModeEnabled = false;
-        }
+        // A full navigation creates a fresh JavaScript context. Re-enable native
+        // ownership only after that trusted page has finished loading.
+        nativeModeEnabled = false;
     }
 
     void onPageFinished(String url) {
@@ -245,15 +245,17 @@ final class NativePlaybackBridge {
 
         JSONArray queueIds = payload.optJSONArray("queueTrackIds");
         List<MediaItem> items = buildQueue(queueIds);
+        MediaItem selectedItem = buildMediaItem(selectedTrack);
+        if (selectedItem == null) return;
         int index = payload.optInt("currentIndex", 0);
 
         if (items.isEmpty()) {
-            items.add(buildMediaItem(selectedTrack));
+            items.add(selectedItem);
             index = 0;
         } else {
             int selectedIndex = findMediaItem(items, selectedId);
             if (selectedIndex < 0) {
-                items.add(selectedIndexForAppend(items.size()), buildMediaItem(selectedTrack));
+                items.add(selectedItem);
                 selectedIndex = items.size() - 1;
             }
             if (index < 0 || index >= items.size()
@@ -266,10 +268,6 @@ final class NativePlaybackBridge {
         controller.prepare();
         controller.play();
         publishState();
-    }
-
-    private int selectedIndexForAppend(int size) {
-        return size;
     }
 
     private void replaceQueueFromSnapshot(JSONObject payload, boolean resume) {
@@ -333,7 +331,9 @@ final class NativePlaybackBridge {
     private String resolveTrustedStreamUrl(String rawUrl) {
         if (rawUrl == null || rawUrl.trim().isEmpty()) return null;
         try {
-            URI base = new URI("https://" + TRUSTED_HOST + "/");
+            String currentPage = webView.getUrl();
+            if (!isTrustedPage(currentPage)) return null;
+            URI base = new URI(currentPage);
             URI resolved = base.resolve(new URI(rawUrl.trim())).normalize();
             if (!"https".equalsIgnoreCase(resolved.getScheme())
                     || !TRUSTED_HOST.equalsIgnoreCase(resolved.getHost())
