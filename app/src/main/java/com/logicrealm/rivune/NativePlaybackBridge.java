@@ -48,12 +48,14 @@ final class NativePlaybackBridge {
     private boolean pageReady;
     private boolean nativeModeEnabled;
     private boolean released;
+    private String lastSeekDiagnosticTrackId;
 
     private final Player.Listener playerListener = new Player.Listener() {
         @Override
         public void onEvents(Player player, Player.Events events) {
             publishState();
             scheduleProgressUpdate();
+            diagnoseSeekbar(player);
         }
 
         @Override
@@ -452,6 +454,32 @@ final class NativePlaybackBridge {
             if (id.equals(items.get(i).mediaId)) return i;
         }
         return -1;
+    }
+
+    private void diagnoseSeekbar(Player player) {
+        if (player.getPlaybackState() != Player.STATE_READY
+                || player.getCurrentMediaItem() == null) {
+            return;
+        }
+
+        String id = player.getCurrentMediaItem().mediaId;
+        if (id == null || id.equals(lastSeekDiagnosticTrackId)) return;
+        lastSeekDiagnosticTrackId = id;
+
+        long duration = player.getDuration();
+        boolean knownDuration = duration != C.TIME_UNSET && duration > 0;
+        boolean seekable = player.isCurrentMediaItemSeekable();
+        if (knownDuration && seekable) return;
+
+        String reason = !knownDuration && !seekable
+                ? "duration unavailable and stream not seekable"
+                : (!knownDuration ? "duration unavailable" : "stream not seekable");
+        Log.w("RivunePlayback", "Track " + id + " has no notification seek bar: " + reason);
+        activity.runOnUiThread(() -> Toast.makeText(
+                activity,
+                "RIVUNE: This track has no seek bar (" + reason + ")",
+                Toast.LENGTH_LONG
+        ).show());
     }
 
     private void scheduleProgressUpdate() {
