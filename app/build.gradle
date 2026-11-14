@@ -1,0 +1,86 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Release signing values are read from Gradle user properties first,
+// then environment variables. Keep passwords and the keystore out of Git.
+def releaseStoreFile = providers.gradleProperty('RIVUNE_STORE_FILE')
+        .orElse(providers.environmentVariable('RIVUNE_STORE_FILE'))
+        .orNull
+def releaseStorePassword = providers.gradleProperty('RIVUNE_STORE_PASSWORD')
+        .orElse(providers.environmentVariable('RIVUNE_STORE_PASSWORD'))
+        .orNull
+def releaseKeyAlias = providers.gradleProperty('RIVUNE_KEY_ALIAS')
+        .orElse(providers.environmentVariable('RIVUNE_KEY_ALIAS'))
+        .orNull
+def releaseKeyPassword = providers.gradleProperty('RIVUNE_KEY_PASSWORD')
+        .orElse(providers.environmentVariable('RIVUNE_KEY_PASSWORD'))
+        .orNull
+
+def hasReleaseSigning = [
+        releaseStoreFile,
+        releaseStorePassword,
+        releaseKeyAlias,
+        releaseKeyPassword
+].every { value -> value != null && !value.trim().isEmpty() }
+
+android {
+    namespace 'com.logicrealm.rivune'
+    compileSdk 35
+    buildToolsVersion '36.0.0'
+
+    defaultConfig {
+        applicationId 'com.logicrealm.rivune'
+        minSdk 24
+        targetSdk 35
+
+        versionCode 1
+        versionName '1.0.0'
+    }
+
+    signingConfigs {
+        release {
+            if (hasReleaseSigning) {
+                storeFile rootProject.file(releaseStoreFile)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            }
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+// Fail the release build early rather than silently producing an unsigned APK.
+tasks.configureEach {
+    if (name == 'validateSigningRelease') {
+        doFirst {
+            if (!hasReleaseSigning) {
+                throw new GradleException(
+                        'Release signing is not configured. Set RIVUNE_STORE_FILE, ' +
+                        'RIVUNE_STORE_PASSWORD, RIVUNE_KEY_ALIAS and RIVUNE_KEY_PASSWORD ' +
+                        'in ~/.gradle/gradle.properties or as environment variables.'
+                )
+            }
+            def keystore = rootProject.file(releaseStoreFile)
+            if (!keystore.isFile()) {
+                throw new GradleException(
+                        "RIVUNE keystore file does not exist: ${keystore}"
+                )
+            }
+        }
+    }
+}

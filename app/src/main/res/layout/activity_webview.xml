@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/rootContainer"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/rivune_midnight"
+    android:clipToPadding="false">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="60dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="16dp"
+        android:paddingEnd="18dp"
+        android:background="@color/rivune_surface">
+
+        <TextView
+            android:id="@+id/closeButton"
+            android:layout_width="42dp"
+            android:layout_height="match_parent"
+            android:text="‹"
+            android:textColor="@color/rivune_lavender"
+            android:textSize="36sp"
+            android:gravity="center"
+            android:clickable="true"
+            android:focusable="true"
+            android:contentDescription="Back" />
+
+        <ImageView
+            android:layout_width="38dp"
+            android:layout_height="38dp"
+            android:src="@drawable/rivune_logo"
+            android:scaleType="fitCenter"
+            android:contentDescription="RIVUNE logo"
+            android:layout_marginStart="5dp" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:layout_marginStart="10dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="RIVUNE"
+                android:textColor="@color/rivune_text"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.10" />
+
+            <TextView
+                android:id="@+id/serverAddress"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="@color/rivune_muted"
+                android:textSize="11sp"
+                android:maxLines="1" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="●"
+            android:textColor="@color/rivune_success"
+            android:textSize="12sp"
+            android:contentDescription="Connected server" />
+    </LinearLayout>
+
+    <ProgressBar
+        android:id="@+id/pageProgress"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="3dp"
+        android:max="100"
+        android:progress="0"
+        android:progressTint="@color/rivune_primary"
+        android:indeterminateTint="@color/rivune_primary"
+        android:visibility="gone" />
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <WebView
+            android:id="@+id/webView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@color/rivune_midnight" />
+
+        <LinearLayout
+            android:id="@+id/errorLayout"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:padding="24dp"
+            android:background="@color/rivune_midnight"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Can't reach your music"
+                android:textColor="@color/rivune_text"
+                android:textSize="21sp"
+                android:textStyle="bold"
+                android:gravity="center" />
+
+            <TextView
+                android:id="@+id/errorMessage"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Check that your RIVUNE server is online and try again."
+                android:textColor="@color/rivune_muted"
+                android:textSize="13sp"
+                android:gravity="center"
+                android:layout_marginTop="10dp" />
+
+            <Button
+                android:id="@+id/reloadButton"
+                android:layout_width="160dp"
+                android:layout_height="48dp"
+                android:text="Try again"
+                android:textAllCaps="false"
+                android:textColor="@color/rivune_text"
+                android:textStyle="bold"
+                android:backgroundTint="@color/rivune_primary_dark"
+                android:layout_marginTop="22dp" />
+        </LinearLayout>
+    </FrameLayout>
+</LinearLayout>

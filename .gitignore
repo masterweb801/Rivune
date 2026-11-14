@@ -1,0 +1,5 @@
+build/*
+app/build/*
+RIVUNE.zip
+rivune-release.jks
+.gradle/*

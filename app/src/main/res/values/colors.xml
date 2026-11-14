@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="rivune_primary">#9875FF</color>
+    <color name="rivune_primary_dark">#7955DC</color>
+    <color name="rivune_lavender">#C9B8FF</color>
+    <color name="rivune_midnight">#11111D</color>
+    <color name="rivune_surface">#1B1929</color>
+    <color name="rivune_elevated">#27233A</color>
+    <color name="rivune_text">#F7F4FF</color>
+    <color name="rivune_muted">#A7A0B8</color>
+    <color name="rivune_success">#48D6A0</color>
+    <color name="rivune_error">#FF6B83</color>
+</resources>
