@@ -65,7 +65,7 @@ android {
 }
 
 dependencies {
-    def media3Version = '1.11.1'
+    def media3Version = '1.9.4'
     implementation "androidx.media3:media3-exoplayer:$media3Version"
     implementation "androidx.media3:media3-session:$media3Version"
 }
