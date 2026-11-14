@@ -22,7 +22,7 @@ import androidx.media3.session.MediaSession;
 import androidx.media3.session.MediaSessionService;
 
 public final class PlaybackService extends MediaSessionService {
-    private static final String PLAYBACK_CHANNEL_ID = "rivune_media_playback_v2";
+    private static final String PLAYBACK_CHANNEL_ID = "rivune_media_playback_v3";
 
     private static volatile String webUserAgent;
     private static volatile String webCookie;
@@ -47,7 +47,7 @@ public final class PlaybackService extends MediaSessionService {
             NotificationChannel channel = new NotificationChannel(
                     PLAYBACK_CHANNEL_ID,
                     getString(R.string.rivune_playback_channel),
-                    NotificationManager.IMPORTANCE_HIGH
+                    NotificationManager.IMPORTANCE_LOW
             );
             channel.setDescription("Playback controls and current track information");
             channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
