@@ -14,8 +14,8 @@ import android.webkit.WebViewClient;
 
 public class MainActivity extends Activity {
 
-    // Replace this with your hosted RIVUNE website URL.
-    private static final String START_URL = "https://example.com";
+    // Permanent hosted RIVUNE website.
+    private static final String START_URL = "https://rivune.page.gd/";
 
     private WebView webView;
 
