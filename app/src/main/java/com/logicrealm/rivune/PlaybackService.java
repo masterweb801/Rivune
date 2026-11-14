@@ -1,6 +1,10 @@
 package com.logicrealm.rivune;
 
 import android.app.PendingIntent;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.os.Build;
 import android.content.Intent;
 import android.webkit.CookieManager;
 
@@ -13,10 +17,13 @@ import java.util.Map;
 
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.session.DefaultMediaNotificationProvider;
 import androidx.media3.session.MediaSession;
 import androidx.media3.session.MediaSessionService;
 
 public final class PlaybackService extends MediaSessionService {
+    private static final String PLAYBACK_CHANNEL_ID = "rivune_media_playback_v2";
+
     private static volatile String webUserAgent;
     private static volatile String webCookie;
 
@@ -31,6 +38,31 @@ public final class PlaybackService extends MediaSessionService {
     @Override
     public void onCreate() {
         super.onCreate();
+
+        // Use a new channel ID so Android does not carry forward the old
+        // silent channel settings created by Media3 on earlier app versions.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationManager notificationManager =
+                    getSystemService(NotificationManager.class);
+            NotificationChannel channel = new NotificationChannel(
+                    PLAYBACK_CHANNEL_ID,
+                    getString(R.string.rivune_playback_channel),
+                    NotificationManager.IMPORTANCE_DEFAULT
+            );
+            channel.setDescription("Playback controls and current track information");
+            channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+            channel.setShowBadge(false);
+            channel.setSound(null, null);
+            channel.enableVibration(false);
+            notificationManager.createNotificationChannel(channel);
+        }
+
+        setMediaNotificationProvider(
+                new DefaultMediaNotificationProvider.Builder(this)
+                        .setChannelId(PLAYBACK_CHANNEL_ID)
+                        .setChannelName(R.string.rivune_playback_channel)
+                        .build()
+        );
 
         Map<String, String> requestHeaders = new HashMap<>();
         requestHeaders.put("Referer", "https://rivune.page.gd/");
