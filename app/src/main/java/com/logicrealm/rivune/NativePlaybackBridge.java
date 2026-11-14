@@ -7,6 +7,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 import android.widget.Toast;
+import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
 
@@ -151,6 +152,10 @@ final class NativePlaybackBridge {
 
     private void connectToPlaybackService() {
         if (controller != null || controllerFuture != null || released) return;
+
+        String userAgent = webView.getSettings().getUserAgentString();
+        String cookie = CookieManager.getInstance().getCookie("https://rivune.page.gd/");
+        PlaybackService.setWebRequestContext(userAgent, cookie);
 
         SessionToken token = new SessionToken(
                 activity,
