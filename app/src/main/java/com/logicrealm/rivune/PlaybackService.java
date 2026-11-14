@@ -47,7 +47,7 @@ public final class PlaybackService extends MediaSessionService {
             NotificationChannel channel = new NotificationChannel(
                     PLAYBACK_CHANNEL_ID,
                     getString(R.string.rivune_playback_channel),
-                    NotificationManager.IMPORTANCE_DEFAULT
+                    NotificationManager.IMPORTANCE_HIGH
             );
             channel.setDescription("Playback controls and current track information");
             channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
