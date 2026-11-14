@@ -64,6 +64,12 @@ android {
     }
 }
 
+dependencies {
+    def media3Version = '1.11.1'
+    implementation "androidx.media3:media3-exoplayer:$media3Version"
+    implementation "androidx.media3:media3-session:$media3Version"
+}
+
 // Fail the release build early rather than silently producing an unsigned APK.
 tasks.configureEach {
     if (name == 'validateSigningRelease') {

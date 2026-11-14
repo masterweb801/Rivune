@@ -9,6 +9,7 @@ import android.view.View;
 import android.view.WindowManager;
 import android.webkit.CookieManager;
 import android.webkit.WebChromeClient;
+import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -21,12 +22,12 @@ public class MainActivity extends Activity {
 
     private FrameLayout root;
     private WebView webView;
+    private NativePlaybackBridge playbackBridge;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // Keep the app immersive without relying on newer WindowInsets APIs.
         getWindow().setFlags(
                 WindowManager.LayoutParams.FLAG_FULLSCREEN,
                 WindowManager.LayoutParams.FLAG_FULLSCREEN
@@ -51,6 +52,14 @@ public class MainActivity extends Activity {
         );
     }
 
+    private boolean isTrustedUrl(String url) {
+        if (url == null) return false;
+        android.net.Uri uri = android.net.Uri.parse(url);
+        return "https".equalsIgnoreCase(uri.getScheme())
+                && "rivune.page.gd".equalsIgnoreCase(uri.getHost())
+                && (uri.getPort() == -1 || uri.getPort() == 443);
+    }
+
     private void openRivune() {
         try {
             webView = new WebView(this);
@@ -70,6 +79,8 @@ public class MainActivity extends Activity {
             settings.setJavaScriptCanOpenWindowsAutomatically(false);
             settings.setSupportMultipleWindows(false);
             settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+            settings.setAllowFileAccess(false);
+            settings.setAllowContentAccess(false);
 
             CookieManager cookieManager = CookieManager.getInstance();
             cookieManager.setAcceptCookie(true);
@@ -77,16 +88,43 @@ public class MainActivity extends Activity {
                 cookieManager.setAcceptThirdPartyCookies(webView, false);
             }
 
+            playbackBridge = new NativePlaybackBridge(this, webView);
+            webView.addJavascriptInterface(playbackBridge, "RivuneNative");
+
             webView.setWebChromeClient(new WebChromeClient());
             webView.setWebViewClient(new WebViewClient() {
                 @Override
+                public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                    // Keep the JavaScript bridge confined to the production RIVUNE origin.
+                    if (!request.isForMainFrame()) return false;
+                    return !isTrustedUrl(request.getUrl().toString());
+                }
+
+                @Override
+                public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                    return !isTrustedUrl(url);
+                }
+
+                @Override
+                public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                    if (playbackBridge != null) playbackBridge.onPageStarted(url);
+                }
+
+                @Override
+                public void onPageFinished(WebView view, String url) {
+                    if (playbackBridge != null) playbackBridge.onPageFinished(url);
+                }
+
+                @Override
                 public boolean onRenderProcessGone(WebView view,
                         android.webkit.RenderProcessGoneDetail detail) {
-                    // Android may terminate a WebView renderer under memory pressure.
-                    // Handle it here instead of allowing the whole app to close.
                     if (view != null) {
                         root.removeView(view);
                         view.destroy();
+                    }
+                    if (playbackBridge != null) {
+                        playbackBridge.release();
+                        playbackBridge = null;
                     }
                     webView = null;
                     root.post(() -> openRivune());
@@ -139,9 +177,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onPause() {
-        // Do not call WebView.onPause() here: this app hosts an active HTML5
-        // audio player, and pausing WebView can interfere with background
-        // playback when the user switches apps or locks the screen.
+        // Keep the WebView's audio pipeline alive while native playback owns the audio.
         super.onPause();
     }
 
@@ -153,8 +189,13 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (playbackBridge != null) {
+            playbackBridge.release();
+            playbackBridge = null;
+        }
         if (webView != null) {
             webView.stopLoading();
+            webView.removeJavascriptInterface("RivuneNative");
             webView.setWebChromeClient(null);
             webView.setWebViewClient(null);
             if (root != null) root.removeView(webView);
