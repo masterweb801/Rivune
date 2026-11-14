@@ -119,15 +119,16 @@ final class NativePlaybackBridge {
                 activity,
                 new ComponentName(activity, PlaybackService.class)
         );
-        controllerFuture = new MediaController.Builder(activity, token).buildAsync();
-        controllerFuture.addListener(() -> {
+        final ListenableFuture<MediaController> future =
+                new MediaController.Builder(activity, token).buildAsync();
+        controllerFuture = future;
+        future.addListener(() -> {
             if (released) {
-                MediaController.releaseFuture(controllerFuture);
-                controllerFuture = null;
+                MediaController.releaseFuture(future);
                 return;
             }
             try {
-                controller = controllerFuture.get();
+                controller = future.get();
                 controllerFuture = null;
                 controller.addListener(playerListener);
                 activateNativeModeIfReady();
@@ -294,6 +295,12 @@ final class NativePlaybackBridge {
         }
 
         controller.setMediaItems(items, index, position);
+        controller.setShuffleModeEnabled(payload.optBoolean(
+                "shuffleEnabled", controller.getShuffleModeEnabled()));
+        if (payload.has("volume")) {
+            controller.setVolume(Math.max(0f, Math.min(1f,
+                    (float) payload.optDouble("volume", controller.getVolume()))));
+        }
         controller.prepare();
         if (resume) controller.play();
     }
