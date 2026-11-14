@@ -139,7 +139,9 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onPause() {
-        if (webView != null) webView.onPause();
+        // Do not call WebView.onPause() here: this app hosts an active HTML5
+        // audio player, and pausing WebView can interfere with background
+        // playback when the user switches apps or locks the screen.
         super.onPause();
     }
 
