@@ -5,6 +5,8 @@ import android.content.ComponentName;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
+import android.widget.Toast;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
 
@@ -54,8 +56,43 @@ final class NativePlaybackBridge {
         }
 
         @Override
+        public void onPlaybackStateChanged(int playbackState) {
+            String stateName;
+            switch (playbackState) {
+                case Player.STATE_IDLE: stateName = "IDLE"; break;
+                case Player.STATE_BUFFERING: stateName = "BUFFERING"; break;
+                case Player.STATE_READY: stateName = "READY"; break;
+                case Player.STATE_ENDED: stateName = "ENDED"; break;
+                default: stateName = "UNKNOWN"; break;
+            }
+            Log.i("RivunePlayback", "Media3 playback state: " + stateName);
+        }
+
+        @Override
         public void onPlayerError(androidx.media3.common.PlaybackException error) {
-            publishError(error.getMessage() == null ? "Playback failed" : error.getMessage());
+            StringBuilder details = new StringBuilder()
+                    .append(error.errorCodeName)
+                    .append(" (")
+                    .append(error.errorCode)
+                    .append(")");
+            if (error.getMessage() != null) {
+                details.append(": ").append(error.getMessage());
+            }
+            Throwable cause = error.getCause();
+            if (cause != null) {
+                details.append(" | Cause: ")
+                        .append(cause.getClass().getSimpleName());
+                if (cause.getMessage() != null) {
+                    details.append(": ").append(cause.getMessage());
+                }
+            }
+            String message = details.toString();
+            Log.e("RivunePlayback", message, error);
+            publishError(message);
+            activity.runOnUiThread(() -> Toast.makeText(
+                    activity, "RIVUNE playback error: " + message,
+                    Toast.LENGTH_LONG
+            ).show());
         }
     };
 
@@ -253,7 +290,10 @@ final class NativePlaybackBridge {
         JSONArray queueIds = payload.optJSONArray("queueTrackIds");
         List<MediaItem> items = buildQueue(queueIds);
         MediaItem selectedItem = buildMediaItem(selectedTrack);
-        if (selectedItem == null) return;
+        if (selectedItem == null) {
+            publishError("Android could not create a playable audio URL for this track");
+            return;
+        }
         int index = payload.optInt("currentIndex", 0);
 
         if (items.isEmpty()) {
@@ -322,9 +362,16 @@ final class NativePlaybackBridge {
     private MediaItem buildMediaItem(JSONObject track) {
         try {
             String id = trackId(track);
-            String streamUrl = resolveTrustedStreamUrl(track.optString("stream_url",
-                    track.optString("streamUrl", "")));
-            if (id == null || streamUrl == null) return null;
+            String rawStreamUrl = track.optString("stream_url",
+                    track.optString("streamUrl", ""));
+            String streamUrl = resolveTrustedStreamUrl(rawStreamUrl);
+            if (id == null || streamUrl == null) {
+                Log.e("RivunePlayback", "Rejected stream URL. Track ID valid: "
+                        + (id != null) + ", URL present: "
+                        + (rawStreamUrl != null && !rawStreamUrl.trim().isEmpty())
+                        + ", page: " + webView.getUrl());
+                return null;
+            }
 
             MediaMetadata metadata = new MediaMetadata.Builder()
                     .setTitle(track.optString("title", "RIVUNE track"))
@@ -338,6 +385,7 @@ final class NativePlaybackBridge {
                     .setMediaMetadata(metadata)
                     .build();
         } catch (RuntimeException error) {
+            Log.e("RivunePlayback", "Could not build Media3 media item", error);
             return null;
         }
     }
