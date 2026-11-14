@@ -71,7 +71,7 @@ final class NativePlaybackBridge {
         @Override
         public void onPlayerError(androidx.media3.common.PlaybackException error) {
             StringBuilder details = new StringBuilder()
-                    .append(error.errorCodeName)
+                    .append(error.getErrorCodeName())
                     .append(" (")
                     .append(error.errorCode)
                     .append(")");
