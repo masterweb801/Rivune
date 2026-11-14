@@ -95,8 +95,8 @@ public class MainActivity extends Activity {
             webView.setWebViewClient(new WebViewClient() {
                 @Override
                 public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                    // Keep the JavaScript bridge confined to the production RIVUNE origin.
-                    if (!request.isForMainFrame()) return false;
+                    // The JavaScript bridge is exposed to every frame in a WebView.
+                    // Block non-RIVUNE frame navigations as well as external top-level pages.
                     return !isTrustedUrl(request.getUrl().toString());
                 }
 

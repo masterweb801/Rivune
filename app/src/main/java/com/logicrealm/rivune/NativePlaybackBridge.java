@@ -83,9 +83,9 @@ final class NativePlaybackBridge {
 
     void onPageStarted(String url) {
         pageReady = false;
-        // A full navigation creates a fresh JavaScript context. Re-enable native
-        // ownership only after that trusted page has finished loading.
-        nativeModeEnabled = false;
+        if (!isTrustedPage(url)) {
+            nativeModeEnabled = false;
+        }
     }
 
     void onPageFinished(String url) {
@@ -119,16 +119,15 @@ final class NativePlaybackBridge {
                 activity,
                 new ComponentName(activity, PlaybackService.class)
         );
-        final ListenableFuture<MediaController> future =
-                new MediaController.Builder(activity, token).buildAsync();
-        controllerFuture = future;
-        future.addListener(() -> {
+        controllerFuture = new MediaController.Builder(activity, token).buildAsync();
+        controllerFuture.addListener(() -> {
             if (released) {
-                MediaController.releaseFuture(future);
+                MediaController.releaseFuture(controllerFuture);
+                controllerFuture = null;
                 return;
             }
             try {
-                controller = future.get();
+                controller = controllerFuture.get();
                 controllerFuture = null;
                 controller.addListener(playerListener);
                 activateNativeModeIfReady();
@@ -142,17 +141,11 @@ final class NativePlaybackBridge {
     private void activateNativeModeIfReady() {
         if (!pageReady || controller == null || nativeModeEnabled || released) return;
 
+        nativeModeEnabled = true;
         webView.evaluateJavascript(
                 "window.RivunePlayback && window.RivunePlayback.setNativeMode(true)",
                 value -> {
                     if (released) return;
-                    nativeModeEnabled = "true".equals(value);
-                    if (!nativeModeEnabled) {
-                        // The deployed page may not yet include the bridge contract.
-                        // In that case leave its existing HTML audio player untouched.
-                        pendingMessages.clear();
-                        return;
-                    }
                     List<String> messages = new ArrayList<>(pendingMessages);
                     pendingMessages.clear();
                     for (String message : messages) receiveMessage(message);
@@ -252,17 +245,15 @@ final class NativePlaybackBridge {
 
         JSONArray queueIds = payload.optJSONArray("queueTrackIds");
         List<MediaItem> items = buildQueue(queueIds);
-        MediaItem selectedItem = buildMediaItem(selectedTrack);
-        if (selectedItem == null) return;
         int index = payload.optInt("currentIndex", 0);
 
         if (items.isEmpty()) {
-            items.add(selectedItem);
+            items.add(buildMediaItem(selectedTrack));
             index = 0;
         } else {
             int selectedIndex = findMediaItem(items, selectedId);
             if (selectedIndex < 0) {
-                items.add(selectedItem);
+                items.add(selectedIndexForAppend(items.size()), buildMediaItem(selectedTrack));
                 selectedIndex = items.size() - 1;
             }
             if (index < 0 || index >= items.size()
@@ -275,6 +266,10 @@ final class NativePlaybackBridge {
         controller.prepare();
         controller.play();
         publishState();
+    }
+
+    private int selectedIndexForAppend(int size) {
+        return size;
     }
 
     private void replaceQueueFromSnapshot(JSONObject payload, boolean resume) {
@@ -295,12 +290,6 @@ final class NativePlaybackBridge {
         }
 
         controller.setMediaItems(items, index, position);
-        controller.setShuffleModeEnabled(payload.optBoolean(
-                "shuffleEnabled", controller.getShuffleModeEnabled()));
-        if (payload.has("volume")) {
-            controller.setVolume(Math.max(0f, Math.min(1f,
-                    (float) payload.optDouble("volume", controller.getVolume()))));
-        }
         controller.prepare();
         if (resume) controller.play();
     }
@@ -344,9 +333,7 @@ final class NativePlaybackBridge {
     private String resolveTrustedStreamUrl(String rawUrl) {
         if (rawUrl == null || rawUrl.trim().isEmpty()) return null;
         try {
-            String currentPage = webView.getUrl();
-            if (!isTrustedPage(currentPage)) return null;
-            URI base = new URI(currentPage);
+            URI base = new URI("https://" + TRUSTED_HOST + "/");
             URI resolved = base.resolve(new URI(rawUrl.trim())).normalize();
             if (!"https".equalsIgnoreCase(resolved.getScheme())
                     || !TRUSTED_HOST.equalsIgnoreCase(resolved.getHost())
