@@ -2,8 +2,11 @@ package com.logicrealm.rivune;
 
 import android.app.Activity;
 import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Bundle;
+import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
@@ -14,6 +17,8 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 
 public class MainActivity extends Activity {
@@ -23,6 +28,7 @@ public class MainActivity extends Activity {
     private FrameLayout root;
     private WebView webView;
     private NativePlaybackBridge playbackBridge;
+    private View splashView;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -35,10 +41,24 @@ public class MainActivity extends Activity {
         hideNavigationBar();
 
         root = new FrameLayout(this);
-        root.setBackgroundColor(Color.BLACK);
+        root.setBackgroundColor(getColorCompat(R.color.rivune_midnight));
         setContentView(root);
 
         openRivune();
+    }
+
+    private int getColorCompat(int colorResource) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            return getResources().getColor(colorResource, getTheme());
+        }
+        //noinspection deprecation
+        return getResources().getColor(colorResource);
+    }
+
+    private int dp(float value) {
+        return (int) TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_DIP, value, getResources().getDisplayMetrics()
+        );
     }
 
     private void hideNavigationBar() {
@@ -58,6 +78,104 @@ public class MainActivity extends Activity {
         return "https".equalsIgnoreCase(uri.getScheme())
                 && "rivune.page.gd".equalsIgnoreCase(uri.getHost())
                 && (uri.getPort() == -1 || uri.getPort() == 443);
+    }
+
+    private View createSplashScreen() {
+        FrameLayout splash = new FrameLayout(this);
+        splash.setBackgroundColor(getColorCompat(R.color.rivune_midnight));
+        splash.setClickable(true);
+        splash.setFocusable(true);
+
+        LinearLayout center = new LinearLayout(this);
+        center.setOrientation(LinearLayout.VERTICAL);
+        center.setGravity(Gravity.CENTER);
+        FrameLayout.LayoutParams centerParams = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER
+        );
+
+        ImageView rivuneLogo = new ImageView(this);
+        rivuneLogo.setImageResource(R.drawable.rivune_logo);
+        rivuneLogo.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        rivuneLogo.setContentDescription("RIVUNE logo");
+        center.addView(rivuneLogo, new LinearLayout.LayoutParams(dp(126), dp(126)));
+
+        TextView rivuneName = new TextView(this);
+        rivuneName.setText("RIVUNE");
+        rivuneName.setTextColor(Color.WHITE);
+        rivuneName.setTextSize(TypedValue.COMPLEX_UNIT_SP, 27);
+        rivuneName.setTypeface(Typeface.create("sans-serif", Typeface.BOLD));
+        rivuneName.setLetterSpacing(0.16f);
+        rivuneName.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams nameParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        nameParams.topMargin = dp(17);
+        center.addView(rivuneName, nameParams);
+        splash.addView(center, centerParams);
+
+        LinearLayout footer = new LinearLayout(this);
+        footer.setOrientation(LinearLayout.VERTICAL);
+        footer.setGravity(Gravity.CENTER);
+
+        TextView poweredBy = new TextView(this);
+        poweredBy.setText("Powered by");
+        poweredBy.setTextColor(getColorCompat(R.color.rivune_muted));
+        poweredBy.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        poweredBy.setGravity(Gravity.CENTER);
+        footer.addView(poweredBy);
+
+        LinearLayout brandRow = new LinearLayout(this);
+        brandRow.setOrientation(LinearLayout.HORIZONTAL);
+        brandRow.setGravity(Gravity.CENTER_VERTICAL);
+
+        ImageView logicRealmLogo = new ImageView(this);
+        logicRealmLogo.setImageResource(R.drawable.logic_realm_logo);
+        logicRealmLogo.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        logicRealmLogo.setContentDescription("Logic Realm logo");
+        LinearLayout.LayoutParams brandLogoParams = new LinearLayout.LayoutParams(
+                dp(31), dp(31)
+        );
+        brandLogoParams.rightMargin = dp(9);
+        brandRow.addView(logicRealmLogo, brandLogoParams);
+
+        TextView logicRealmName = new TextView(this);
+        logicRealmName.setText("Logic Realm");
+        logicRealmName.setTextColor(Color.WHITE);
+        logicRealmName.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17);
+        logicRealmName.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        brandRow.addView(logicRealmName);
+        LinearLayout.LayoutParams brandRowParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        brandRowParams.topMargin = dp(5);
+        footer.addView(brandRow, brandRowParams);
+
+        FrameLayout.LayoutParams footerParams = new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL
+        );
+        footerParams.bottomMargin = dp(34);
+        splash.addView(footer, footerParams);
+
+        return splash;
+    }
+
+    private void hideSplashScreen() {
+        if (splashView == null) return;
+        View oldSplash = splashView;
+        splashView = null;
+        oldSplash.animate()
+                .alpha(0f)
+                .setDuration(180)
+                .withEndAction(() -> {
+                    if (root != null) root.removeView(oldSplash);
+                })
+                .start();
     }
 
     private void openRivune() {
@@ -95,8 +213,6 @@ public class MainActivity extends Activity {
             webView.setWebViewClient(new WebViewClient() {
                 @Override
                 public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                    // The JavaScript bridge is exposed to every frame in a WebView.
-                    // Block non-RIVUNE frame navigations as well as external top-level pages.
                     return !isTrustedUrl(request.getUrl().toString());
                 }
 
@@ -113,6 +229,7 @@ public class MainActivity extends Activity {
                 @Override
                 public void onPageFinished(WebView view, String url) {
                     if (playbackBridge != null) playbackBridge.onPageFinished(url);
+                    if (isTrustedUrl(url)) hideSplashScreen();
                 }
 
                 @Override
@@ -134,6 +251,8 @@ public class MainActivity extends Activity {
 
             root.removeAllViews();
             root.addView(webView);
+            splashView = createSplashScreen();
+            root.addView(splashView);
             webView.loadUrl(START_URL);
         } catch (RuntimeException error) {
             showStartupError(error);
@@ -141,6 +260,7 @@ public class MainActivity extends Activity {
     }
 
     private void showStartupError(RuntimeException error) {
+        splashView = null;
         TextView message = new TextView(this);
         message.setTextColor(Color.WHITE);
         message.setTextSize(16);
@@ -177,7 +297,6 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onPause() {
-        // Keep the WebView's audio pipeline alive while native playback owns the audio.
         super.onPause();
     }
 
