@@ -141,11 +141,17 @@ final class NativePlaybackBridge {
     private void activateNativeModeIfReady() {
         if (!pageReady || controller == null || nativeModeEnabled || released) return;
 
-        nativeModeEnabled = true;
         webView.evaluateJavascript(
                 "window.RivunePlayback && window.RivunePlayback.setNativeMode(true)",
                 value -> {
                     if (released) return;
+                    nativeModeEnabled = "true".equals(value);
+                    if (!nativeModeEnabled) {
+                        // The deployed page may not yet include the bridge contract.
+                        // In that case leave its existing HTML audio player untouched.
+                        pendingMessages.clear();
+                        return;
+                    }
                     List<String> messages = new ArrayList<>(pendingMessages);
                     pendingMessages.clear();
                     for (String message : messages) receiveMessage(message);
