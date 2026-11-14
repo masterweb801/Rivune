@@ -1,5 +1,8 @@
 package com.logicrealm.rivune;
 
+import android.app.PendingIntent;
+import android.content.Intent;
+
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.session.MediaSession;
@@ -16,8 +19,15 @@ public final class PlaybackService extends MediaSessionService {
         player = new ExoPlayer.Builder(this).build();
         // Media3 manages audio focus and interruption behaviour for the player.
         player.setAudioAttributes(AudioAttributes.DEFAULT, true);
+        PendingIntent sessionActivity = PendingIntent.getActivity(
+                this,
+                0,
+                new Intent(this, MainActivity.class),
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
         mediaSession = new MediaSession.Builder(this, player)
                 .setId("rivune-playback")
+                .setSessionActivity(sessionActivity)
                 .build();
     }
 
