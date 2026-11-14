@@ -383,6 +383,17 @@ final class NativePlaybackBridge {
         return id.matches("[A-Za-z0-9_-]{1,128}") ? id : null;
     }
 
+    private Object jsonTrackId(String id) {
+        if (id != null && id.matches("[0-9]{1,18}")) {
+            try {
+                return Long.parseLong(id);
+            } catch (NumberFormatException ignored) {
+                // Fall through and preserve the identifier as a string.
+            }
+        }
+        return id;
+    }
+
     private int findMediaItem(List<MediaItem> items, String id) {
         for (int i = 0; i < items.size(); i++) {
             if (id.equals(items.get(i).mediaId)) return i;
@@ -403,7 +414,7 @@ final class NativePlaybackBridge {
             JSONArray queueIds = new JSONArray();
             for (int i = 0; i < controller.getMediaItemCount(); i++) {
                 String id = controller.getMediaItemAt(i).mediaId;
-                queueIds.put(id);
+                queueIds.put(jsonTrackId(id));
             }
 
             String trackId = controller.getCurrentMediaItem() == null
@@ -412,7 +423,7 @@ final class NativePlaybackBridge {
             if (duration == C.TIME_UNSET || duration < 0) duration = 0;
 
             JSONObject state = new JSONObject();
-            state.put("trackId", trackId == null ? JSONObject.NULL : trackId);
+            state.put("trackId", trackId == null ? JSONObject.NULL : jsonTrackId(trackId));
             state.put("queueTrackIds", queueIds);
             state.put("currentIndex", controller.getCurrentMediaItemIndex());
             state.put("isPlaying", controller.isPlaying());
