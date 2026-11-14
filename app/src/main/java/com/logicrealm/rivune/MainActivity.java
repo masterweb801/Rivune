@@ -53,7 +53,7 @@ public class MainActivity extends Activity {
 
     private void openRivune() {
         try {
-            webView = new WebView(getApplicationContext());
+            webView = new WebView(this);
             webView.setBackgroundColor(Color.BLACK);
             webView.setLayoutParams(new FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.MATCH_PARENT,
