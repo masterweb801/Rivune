@@ -2,173 +2,86 @@
 
 **Music Without Boundaries.**
 
-RIVUNE for Android is the companion app for discovering a RIVUNE Server
-on the local network and opening its web-based music player inside the
-app.
+RIVUNE for Android is the native Android companion for the hosted RIVUNE music-streaming website. The app opens the permanent website inside a secured WebView and connects its web player to Android's native media playback service.
 
--   **Application ID:** `com.logicrealm.rivune`
--   **Platform:** Android
--   **Implementation:** Java, XML layouts, Android WebView
--   **Discovery:** UDP broadcast on port `39876`
+- **Application ID:** com.logicrealm.rivune
+- **Platform:** Android 7.0+ (minSdk 24)
+- **Language:** Java
+- **Web experience:** https://rivune.page.gd/
+- **Native playback:** AndroidX Media3 ExoPlayer and MediaSession
 
 ## Features
 
--   Searches the local network for RIVUNE Server instances.
--   Uses UDP broadcast discovery rather than requiring the user to type
-    an IP address.
--   Checks discovered servers through the HTTP health endpoint before
-    connecting.
--   Displays the selected server's web player inside an Android WebView.
--   Provides a retry path when no server is found.
+- Opens the hosted RIVUNE website directly; no local server discovery is required.
+- WebView configuration supports JavaScript, DOM storage, and web audio playback.
+- Restricts navigation to the trusted RIVUNE HTTPS host.
+- Bridges website playback commands to native Android playback.
+- Uses a Media3 playback service for background audio and system media controls.
+- Supports Android media-session integration for notification and lock-screen controls.
+- Includes a branded launch splash screen.
 
-## How it works
+## Architecture
 
-1.  The app sends the discovery request `MOBS_JUKEBOX_DISCOVER_V1` over
-    UDP.
-2.  A RIVUNE Server listening on UDP port `39876` replies with JSON
-    containing its service identifier and HTTP port.
-3.  The app reads the server IP address from the UDP packet's sender
-    address.
-4.  The app checks the server at `/api/health`.
-5.  Once verified, the app opens the server's web interface in its
-    WebView.
+The website remains the public music interface. The Android application hosts that interface in a WebView, while the native playback bridge passes track and playback information to the Media3 service.
 
-The discovery response uses the service identifier `mobs-jukebox`. Keep
-these protocol values in sync with the server project when making
-changes.
+The app's configured start address is https://rivune.page.gd/. The WebView accepts navigation only to the trusted RIVUNE host over HTTPS.
 
 ## Requirements
 
-### To use the app
+- Android Studio or a compatible Android SDK/Gradle environment
+- JDK 17
+- Android SDK Platform 35
+- Android Gradle Plugin compatible with the project
 
--   An Android device.
--   A running RIVUNE Server.
--   Both devices connected to the same Wi-Fi/LAN.
--   Local-network communication permitted by the router and device
-    firewall.
+## Build
 
-### To build the app
+From the project root:
 
-The project is intended to be buildable from Termux with the Android SDK
-and Gradle installed. The development setup used for this project
-includes:
+    ./gradlew assembleDebug
 
--   Java 17 for the Gradle daemon.
--   Gradle `9.9.1`.
--   Android Gradle Plugin `9.4.0`.
--   Android compile SDK `35`.
+The debug APK is normally generated at:
 
-Your installed Android SDK and Gradle environment may need compatible
-versions if you use a different setup.
+    app/build/outputs/apk/debug/app-debug.apk
 
-## Build in Termux
+Install it with ADB:
 
-1.  Install and configure Termux, Java, Gradle, and the Android SDK.
+    adb install -r app/build/outputs/apk/debug/app-debug.apk
 
-2.  Extract the Android project.
+You can also use a compatible Gradle installation in Termux:
 
-3.  Change to the project root directory (the directory containing
-    `settings.gradle` or `settings.gradle.kts`).
-
-4.  Build the debug APK:
-
-    ``` bash
     gradle assembleDebug
-    ```
 
-The APK is normally generated at:
+Make sure the Android SDK, Java 17, and Gradle paths are configured for your environment.
 
-``` text
-app/build/outputs/apk/debug/app-debug.apk
-```
+## Release signing
 
-Install it using ADB:
+Release signing values are read from Gradle user properties or environment variables. Configure these values outside the repository:
 
-``` bash
-adb install -r app/build/outputs/apk/debug/app-debug.apk
-```
+- RIVUNE_STORE_FILE
+- RIVUNE_STORE_PASSWORD
+- RIVUNE_KEY_ALIAS
+- RIVUNE_KEY_PASSWORD
 
-If building directly on the Android device, make sure the SDK path and
-Gradle configuration match your Termux installation.
+The release build validates that all signing values and the keystore file are present. Never commit the keystore or signing passwords.
 
-### Termux Gradle configuration
+## Playback integration
 
-The development environment used these settings in
-`~/.gradle/gradle.properties`:
+The native bridge is implemented in NativePlaybackBridge.java and the background media service is implemented in PlaybackService.java.
 
-``` properties
-android.aapt2FromMavenOverride=/data/data/com.termux/files/usr/bin/aapt2
-org.gradle.jvmargs=-Xmx1536m -Dfile.encoding=UTF-8
-org.gradle.java.home=/data/data/com.termux/files/usr/lib/jvm/java-17-openjdk
-```
+The website and Android app communicate through the RIVUNE playback bridge. Keep the message contract and track metadata synchronized when changing either side. Test play, pause, seek, previous/next, notification controls, audio focus, and playback after the app is minimized or the screen is locked.
 
-These paths are specific to a typical Termux installation. Adjust them
-if your Java or AAPT2 binaries are installed elsewhere. Do not add this
-file to the project repository if it contains machine-specific paths.
+## Security notes
 
-## Permissions and network access
+- The app uses HTTPS and disables cleartext traffic.
+- WebView navigation is restricted to the RIVUNE host.
+- File and content access are disabled in the WebView.
+- Release signing credentials must remain outside Git.
 
-The app uses Android network permissions to discover and connect to a
-local server. The project also enables cleartext HTTP for the local
-server connection.
+## Related project
 
-The server's default HTTP URL is:
+- [RIVUNE Server](https://github.com/masterweb801/Rivune-Server) — PHP/MySQL streaming website and admin backend
+- [RIVUNE Web App](https://rivune.page.gd/) — hosted music player
 
-``` text
-http://SERVER_IP:8080
-```
+---
 
-Replace `SERVER_IP` with the server device's local IP address.
-
-## Troubleshooting
-
-**No server appears**
-
--   Start the RIVUNE Server before scanning.
--   Connect the phone and server device to the same Wi-Fi/LAN.
--   Make sure the router does not isolate wireless clients.
--   Check that UDP port `39876` is allowed on the server device.
--   Use the app's retry action after confirming the server is running.
-
-**A server appears but does not connect**
-
--   Check that TCP port `8080` is allowed.
--   From the phone's browser, open `http://SERVER_IP:8080/api/health`.
--   Confirm the server is advertising the correct HTTP port.
-
-**The app layout is clipped or overlaps system UI**
-
--   Test on the target device and Android version.
--   Check status-bar, navigation-bar, and display-cutout inset handling.
--   Prefer scrollable content and consistent layout padding over fixed
-    screen-height assumptions.
--   Test both gesture navigation and three-button navigation where
-    possible.
-
-**Web player is blank or does not load**
-
--   Confirm the server's web interface opens in the phone's browser.
--   Check the server terminal for HTTP errors.
--   Verify that the WebView URL uses the server's current LAN IP and
-    port.
-
-## Compatibility protocol
-
-  Setting              Value
-  -------------------- ----------------------------
-  UDP discovery port   `39876`
-  UDP request          `MOBS_JUKEBOX_DISCOVER_V1`
-  Service identifier   `mobs-jukebox`
-  Default HTTP port    `8080`
-  Health endpoint      `/api/health`
-
-## Project maintenance
-
-When changing discovery behavior, update and test both the Android
-client and Node.js server. When changing layouts, test on devices with
-different aspect ratios, display cutouts, and system navigation modes.
-
-## License
-
-Add the license and copyright details applicable to your distribution
-before publishing this project.
+Built by [Mobashshirul Karim](https://github.com/masterweb801) at [Logic Realm](https://logicrealm.rf.gd/).
