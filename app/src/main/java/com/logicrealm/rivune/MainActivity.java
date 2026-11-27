@@ -78,22 +78,14 @@ public class MainActivity extends Activity {
     /** Verify the native APK version before creating the WebView or exposing the website. */
     private void checkAppVersion() {
         if (updateCheckRunning) return;
-        SharedPreferences prefs = getSharedPreferences(UPDATE_PREFS, MODE_PRIVATE);
-        long lastCheck = prefs.getLong(PREF_LAST_CHECK, 0L);
-        String cachedVersion = prefs.getString(PREF_LATEST_VERSION, null);
-        String cachedApkUrl = prefs.getString(PREF_APK_URL, null);
-        if (lastCheck > 0L && System.currentTimeMillis() - lastCheck < UPDATE_CHECK_INTERVAL_MS
-                && cachedVersion != null && !cachedVersion.isEmpty()
-                && cachedApkUrl != null && !cachedApkUrl.isEmpty()) {
-            applyReleaseResult(cachedVersion, cachedApkUrl);
-            return;
-        }
         updateCheckRunning = true;
-        showVersionGate("Checking for RIVUNE updates…", false, null);
+        showVersionGate("Checking your internet connection…", false, null);
 
         new Thread(() -> {
             HttpURLConnection connection = null;
             try {
+                // Connectivity must be checked on every launch, even when the
+                // once-daily release result is still cached.
                 if (!hasInternetConnection()) {
                     mainHandler.post(() -> {
                         updateCheckRunning = false;
@@ -103,6 +95,22 @@ public class MainActivity extends Activity {
                                 false,
                                 null
                         );
+                    });
+                    return;
+                }
+
+                SharedPreferences prefs = getSharedPreferences(UPDATE_PREFS, MODE_PRIVATE);
+                long lastCheck = prefs.getLong(PREF_LAST_CHECK, 0L);
+                String cachedVersion = prefs.getString(PREF_LATEST_VERSION, null);
+                String cachedApkUrl = prefs.getString(PREF_APK_URL, null);
+                if (lastCheck > 0L
+                        && System.currentTimeMillis() - lastCheck < UPDATE_CHECK_INTERVAL_MS
+                        && cachedVersion != null && !cachedVersion.isEmpty()
+                        && cachedApkUrl != null && !cachedApkUrl.isEmpty()) {
+                    mainHandler.post(() -> {
+                        updateCheckRunning = false;
+                        if (isFinishing() || isDestroyed()) return;
+                        applyReleaseResult(cachedVersion, cachedApkUrl);
                     });
                     return;
                 }
@@ -128,7 +136,6 @@ public class MainActivity extends Activity {
 
                 JSONObject release = new JSONObject(response.toString());
                 String latestVersion = release.optString("tag_name", "").trim();
-                String releasePage = release.optString("html_url", "").trim();
                 String apkUrl = null;
                 JSONArray assets = release.optJSONArray("assets");
                 if (assets != null) {
