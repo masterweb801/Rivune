@@ -390,6 +390,7 @@ final class NativePlaybackBridge {
             return new MediaItem.Builder()
                     .setMediaId(id)
                     .setUri(Uri.parse(streamUrl))
+                    // RIVUNE's library is MP3; stream.php uses a dynamic URL with no file extension.
                     .setMimeType(MimeTypes.AUDIO_MPEG)
                     .setMediaMetadata(metadata)
                     .build();
