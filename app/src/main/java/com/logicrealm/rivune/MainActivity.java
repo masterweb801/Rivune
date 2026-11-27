@@ -39,6 +39,8 @@ public class MainActivity extends Activity {
     private static final String START_URL = "https://rivune.page.gd/";
     private static final String LATEST_RELEASE_API =
             "https://api.github.com/repos/masterweb801/Rivune/releases/latest";
+    private static final String LATEST_RELEASE_PAGE =
+            "https://github.com/masterweb801/Rivune/releases/latest";
 
     private FrameLayout root;
     private WebView webView;
@@ -151,7 +153,7 @@ public class MainActivity extends Activity {
         for (int i = 0; i < count; i++) {
             String av = i < a.length ? a[i] : "0";
             String bv = i < b.length ? b[i] : "0";
-            if (!av.matches("\\\\d+") || !bv.matches("\\\\d+")) {
+            if (!av.matches("\\d+") || !bv.matches("\\d+")) {
                 throw new IllegalArgumentException("Versions must use numeric components (for example 1.0.1)");
             }
             int result = Long.compare(Long.parseLong(av), Long.parseLong(bv));
@@ -194,11 +196,29 @@ public class MainActivity extends Activity {
                 }
             });
             panel.addView(update);
-        } else if (!updateCheckRunning) {
-            Button retry = new Button(this);
-            retry.setText("Retry version check");
-            retry.setOnClickListener(view -> checkAppVersion());
-            panel.addView(retry);
+        }
+
+        if (!updateCheckRunning) {
+            Button latestRelease = new Button(this);
+            latestRelease.setText("View latest release");
+            latestRelease.setOnClickListener(view -> {
+                try {
+                    startActivity(new Intent(
+                            Intent.ACTION_VIEW,
+                            android.net.Uri.parse(LATEST_RELEASE_PAGE)
+                    ));
+                } catch (Exception ignored) {
+                    details.setText("Unable to open the GitHub release page. Please try again.");
+                }
+            });
+            panel.addView(latestRelease);
+
+            if (!updateAvailable) {
+                Button retry = new Button(this);
+                retry.setText("Retry version check");
+                retry.setOnClickListener(view -> checkAppVersion());
+                panel.addView(retry);
+            }
         }
 
         root.addView(panel, new FrameLayout.LayoutParams(
