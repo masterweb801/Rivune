@@ -419,6 +419,7 @@ public class MainActivity extends Activity {
             startupPlayer = MediaPlayer.create(this, R.raw.rivune_startup);
             if (startupPlayer == null) {
                 startupSoundFinished = true;
+                hideSplashScreen();
                 return;
             }
             AudioAttributes attributes = new AudioAttributes.Builder()
@@ -443,6 +444,7 @@ public class MainActivity extends Activity {
             startupPlayer.start();
         } catch (RuntimeException ignored) {
             startupSoundFinished = true;
+            hideSplashScreen();
         }
     }
 
