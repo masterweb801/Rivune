@@ -277,19 +277,21 @@ public class MainActivity extends Activity {
         }
 
         if (!updateCheckRunning) {
-            Button latestRelease = new Button(this);
-            latestRelease.setText("View latest release");
-            latestRelease.setOnClickListener(view -> {
-                try {
-                    startActivity(new Intent(
-                            Intent.ACTION_VIEW,
-                            android.net.Uri.parse(LATEST_RELEASE_PAGE)
-                    ));
-                } catch (Exception ignored) {
-                    details.setText("Unable to open the GitHub release page. Please try again.");
-                }
-            });
-            panel.addView(latestRelease);
+            if (!offline) {
+                Button latestRelease = new Button(this);
+                latestRelease.setText("View latest release");
+                latestRelease.setOnClickListener(view -> {
+                    try {
+                        startActivity(new Intent(
+                                Intent.ACTION_VIEW,
+                                android.net.Uri.parse(LATEST_RELEASE_PAGE)
+                        ));
+                    } catch (Exception ignored) {
+                        details.setText("Unable to open the GitHub release page. Please try again.");
+                    }
+                });
+                panel.addView(latestRelease);
+            }
 
             if (!updateAvailable) {
                 Button retry = new Button(this);
