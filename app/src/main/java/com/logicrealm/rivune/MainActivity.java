@@ -72,8 +72,18 @@ public class MainActivity extends Activity {
     /** Verify the native APK version before creating the WebView or exposing the website. */
     private void checkAppVersion() {
         if (updateCheckRunning) return;
+        SharedPreferences prefs = getSharedPreferences(UPDATE_PREFS, MODE_PRIVATE);
+        long lastCheck = prefs.getLong(PREF_LAST_CHECK, 0L);
+        String cachedVersion = prefs.getString(PREF_LATEST_VERSION, null);
+        String cachedApkUrl = prefs.getString(PREF_APK_URL, null);
+        if (lastCheck > 0L && System.currentTimeMillis() - lastCheck < UPDATE_CHECK_INTERVAL_MS
+                && cachedVersion != null && !cachedVersion.isEmpty()
+                && cachedApkUrl != null && !cachedApkUrl.isEmpty()) {
+            applyReleaseResult(cachedVersion, cachedApkUrl);
+            return;
+        }
         updateCheckRunning = true;
-        showVersionGate("Checking for required RIVUNE updates…", false, null);
+        showVersionGate("Checking for RIVUNE updates…", false, null);
 
         new Thread(() -> {
             HttpURLConnection connection = null;
@@ -83,7 +93,7 @@ public class MainActivity extends Activity {
                         updateCheckRunning = false;
                         if (isFinishing() || isDestroyed()) return;
                         showVersionGate(
-                                "No internet connection was detected. Connect to Wi-Fi or mobile data, then try again. RIVUNE needs an internet connection to verify app updates.",
+                                "OFFLINE:No internet connection. Please connect to Wi-Fi or mobile data and try again.",
                                 false,
                                 null
                         );
@@ -130,20 +140,16 @@ public class MainActivity extends Activity {
                     throw new IllegalStateException("The latest GitHub release has no valid APK asset");
                 }
 
-                String installedVersion = getPackageManager()
-                        .getPackageInfo(getPackageName(), 0).versionName;
-                final boolean updateRequired = compareVersions(installedVersion, latestVersion) < 0;
-                final String updateLink = apkUrl;
-                final String versionLabel = latestVersion;
+                SharedPreferences releasePrefs = getSharedPreferences(UPDATE_PREFS, MODE_PRIVATE);
+                releasePrefs.edit()
+                        .putLong(PREF_LAST_CHECK, System.currentTimeMillis())
+                        .putString(PREF_LATEST_VERSION, latestVersion)
+                        .putString(PREF_APK_URL, apkUrl)
+                        .apply();
                 mainHandler.post(() -> {
                     updateCheckRunning = false;
                     if (isFinishing() || isDestroyed()) return;
-                    if (updateRequired) {
-                        showVersionGate("A required RIVUNE update is available. Update to version "
-                                + versionLabel + " to continue.", true, updateLink);
-                    } else {
-                        openRivune();
-                    }
+                    applyReleaseResult(latestVersion, apkUrl);
                 });
             } catch (Exception error) {
                 mainHandler.post(() -> {
@@ -157,6 +163,39 @@ public class MainActivity extends Activity {
                 if (connection != null) connection.disconnect();
             }
         }, "RivuneVersionCheck").start();
+    }
+
+    private void applyReleaseResult(String latestVersion, String apkUrl) {
+        try {
+            String installedVersion = getPackageManager()
+                    .getPackageInfo(getPackageName(), 0).versionName;
+            boolean updateRequired = compareVersions(installedVersion, latestVersion) < 0;
+            if (updateRequired) {
+                showVersionGate("A required RIVUNE update is available. Update to version "
+                        + latestVersion + " to continue.", true, apkUrl);
+            } else {
+                openRivune();
+            }
+        } catch (Exception error) {
+            showVersionGate("Unable to check for updates right now. Please try again.", false, null);
+        }
+    }
+
+    private void retryInternetConnection() {
+        if (updateCheckRunning) return;
+        updateCheckRunning = true;
+        showVersionGate("Checking your internet connection…", false, null);
+        new Thread(() -> {
+            boolean connected = hasInternetConnection();
+            mainHandler.post(() -> {
+                updateCheckRunning = false;
+                if (isFinishing() || isDestroyed()) return;
+                if (connected) checkAppVersion();
+                else showVersionGate(
+                        "OFFLINE:No internet connection. Please connect to Wi-Fi or mobile data and try again.",
+                        false, null);
+            });
+        }, "RivuneConnectivityCheck").start();
     }
 
     /** Returns true only when Android reports a validated internet connection. */
@@ -194,6 +233,8 @@ public class MainActivity extends Activity {
     }
 
     private void showVersionGate(String message, boolean updateAvailable, String apkUrl) {
+        boolean offline = message != null && message.startsWith("OFFLINE:");
+        if (offline) message = message.substring("OFFLINE:".length());
         root.removeAllViews();
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
@@ -201,7 +242,7 @@ public class MainActivity extends Activity {
         panel.setPadding(dp(30), dp(30), dp(30), dp(30));
 
         TextView title = new TextView(this);
-        title.setText(updateAvailable ? "RIVUNE UPDATE REQUIRED" : "RIVUNE SECURITY CHECK");
+        title.setText(offline ? "NO INTERNET CONNECTION" : (updateAvailable ? "RIVUNE UPDATE REQUIRED" : "RIVUNE SECURITY CHECK"));
         title.setTextColor(Color.WHITE);
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 21);
         title.setTypeface(Typeface.DEFAULT_BOLD);
@@ -246,8 +287,11 @@ public class MainActivity extends Activity {
 
             if (!updateAvailable) {
                 Button retry = new Button(this);
-                retry.setText("Retry version check");
-                retry.setOnClickListener(view -> checkAppVersion());
+                retry.setText(offline ? "Check internet connection again" : "Retry");
+                retry.setOnClickListener(view -> {
+                    if (offline) retryInternetConnection();
+                    else checkAppVersion();
+                });
                 panel.addView(retry);
             }
         }
