@@ -82,6 +82,7 @@ public class MainActivity extends Activity {
     private boolean startupSoundFinished = true;
     private boolean splashPageLoaded;
     private MediaPlayer startupPlayer;
+    private View offlineView;
     private final BroadcastReceiver updateReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
             if (ACTION_UPDATE_AVAILABLE.equals(intent.getAction())) showSavedMandatoryUpdate();
@@ -595,7 +596,7 @@ public class MainActivity extends Activity {
             splashView = null;
         }
         if (webView != null) webView.setVisibility(View.GONE);
-        root.removeViews(0, root.getChildCount());
+        if (offlineView != null) root.removeView(offlineView);
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
         panel.setGravity(Gravity.CENTER);
@@ -617,7 +618,8 @@ public class MainActivity extends Activity {
             if (!isNetworkAvailable()) {
                 return;
             }
-            panel.setVisibility(View.GONE);
+            root.removeView(panel);
+            offlineView = null;
             if (webView != null) {
                 webView.setVisibility(View.VISIBLE);
                 webView.loadUrl(START_URL);
@@ -629,6 +631,7 @@ public class MainActivity extends Activity {
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
         retryParams.topMargin = dp(22);
         panel.addView(retry, retryParams);
+        offlineView = panel;
         root.addView(panel, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
     }
