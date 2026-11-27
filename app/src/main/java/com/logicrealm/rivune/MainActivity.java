@@ -45,6 +45,11 @@ public class MainActivity extends Activity {
             "https://api.github.com/repos/masterweb801/Rivune/releases/latest";
     private static final String LATEST_RELEASE_PAGE =
             "https://github.com/masterweb801/Rivune/releases/latest";
+    private static final String UPDATE_PREFS = "rivune_update_check";
+    private static final String PREF_LAST_CHECK = "last_successful_check";
+    private static final String PREF_LATEST_VERSION = "latest_version";
+    private static final String PREF_APK_URL = "latest_apk_url";
+    private static final long UPDATE_CHECK_INTERVAL_MS = 24L * 60L * 60L * 1000L;
 
     private FrameLayout root;
     private WebView webView;
