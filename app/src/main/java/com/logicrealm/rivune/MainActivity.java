@@ -1,11 +1,14 @@
 package com.logicrealm.rivune;
 
 import android.app.Activity;
+import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
@@ -16,19 +19,33 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
+
 public class MainActivity extends Activity {
 
     private static final String START_URL = "https://rivune.page.gd/";
+    private static final String LATEST_RELEASE_API =
+            "https://api.github.com/repos/masterweb801/Rivune/releases/latest";
 
     private FrameLayout root;
     private WebView webView;
     private NativePlaybackBridge playbackBridge;
     private View splashView;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private boolean updateCheckRunning;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -44,7 +61,150 @@ public class MainActivity extends Activity {
         root.setBackgroundColor(getColorCompat(R.color.rivune_midnight));
         setContentView(root);
 
-        openRivune();
+        checkAppVersion();
+    }
+
+    /** Verify the native APK version before creating the WebView or exposing the website. */
+    private void checkAppVersion() {
+        if (updateCheckRunning) return;
+        updateCheckRunning = true;
+        showVersionGate("Checking for required RIVUNE updates…", false, null);
+
+        new Thread(() -> {
+            HttpURLConnection connection = null;
+            try {
+                connection = (HttpURLConnection) new URL(LATEST_RELEASE_API).openConnection();
+                connection.setRequestMethod("GET");
+                connection.setConnectTimeout(7000);
+                connection.setReadTimeout(7000);
+                connection.setRequestProperty("Accept", "application/vnd.github+json");
+                connection.setRequestProperty("User-Agent", "RIVUNE-Android-App");
+
+                int status = connection.getResponseCode();
+                if (status != HttpURLConnection.HTTP_OK) {
+                    throw new IllegalStateException("GitHub returned HTTP " + status);
+                }
+
+                StringBuilder response = new StringBuilder();
+                try (InputStream input = connection.getInputStream();
+                     BufferedReader reader = new BufferedReader(new InputStreamReader(input))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) response.append(line);
+                }
+
+                JSONObject release = new JSONObject(response.toString());
+                String latestVersion = release.optString("tag_name", "").trim();
+                String releasePage = release.optString("html_url", "").trim();
+                String apkUrl = null;
+                JSONArray assets = release.optJSONArray("assets");
+                if (assets != null) {
+                    for (int i = 0; i < assets.length(); i++) {
+                        JSONObject asset = assets.optJSONObject(i);
+                        if (asset == null) continue;
+                        String name = asset.optString("name", "");
+                        if (name.toLowerCase(java.util.Locale.ROOT).endsWith(".apk")) {
+                            apkUrl = asset.optString("browser_download_url", null);
+                            break;
+                        }
+                    }
+                }
+                if (latestVersion.isEmpty() || apkUrl == null || apkUrl.isEmpty()) {
+                    throw new IllegalStateException("The latest GitHub release has no valid APK asset");
+                }
+
+                String installedVersion = getPackageManager()
+                        .getPackageInfo(getPackageName(), 0).versionName;
+                final boolean updateRequired = compareVersions(installedVersion, latestVersion) < 0;
+                final String updateLink = apkUrl;
+                final String versionLabel = latestVersion;
+                mainHandler.post(() -> {
+                    updateCheckRunning = false;
+                    if (isFinishing() || isDestroyed()) return;
+                    if (updateRequired) {
+                        showVersionGate("A required RIVUNE update is available. Update to version "
+                                + versionLabel + " to continue.", true, updateLink);
+                    } else {
+                        openRivune();
+                    }
+                });
+            } catch (Exception error) {
+                mainHandler.post(() -> {
+                    updateCheckRunning = false;
+                    if (isFinishing() || isDestroyed()) return;
+                    showVersionGate("RIVUNE couldn't verify the latest app version. "
+                            + "For your security, access is locked until the update check succeeds.\n\n"
+                            + error.getMessage(), false, null);
+                });
+            } finally {
+                if (connection != null) connection.disconnect();
+            }
+        }, "RivuneVersionCheck").start();
+    }
+
+    private int compareVersions(String installed, String latest) {
+        String left = installed == null ? "" : installed.trim().replaceFirst("^[vV]", "");
+        String right = latest == null ? "" : latest.trim().replaceFirst("^[vV]", "");
+        String[] a = left.split("[.+-]", -1);
+        String[] b = right.split("[.+-]", -1);
+        if (a.length == 0 || b.length == 0) throw new IllegalArgumentException("Invalid app version");
+        int count = Math.max(a.length, b.length);
+        for (int i = 0; i < count; i++) {
+            String av = i < a.length ? a[i] : "0";
+            String bv = i < b.length ? b[i] : "0";
+            if (!av.matches("\\\\d+") || !bv.matches("\\\\d+")) {
+                throw new IllegalArgumentException("Versions must use numeric components (for example 1.0.1)");
+            }
+            int result = Long.compare(Long.parseLong(av), Long.parseLong(bv));
+            if (result != 0) return result;
+        }
+        return 0;
+    }
+
+    private void showVersionGate(String message, boolean updateAvailable, String apkUrl) {
+        root.removeAllViews();
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setGravity(Gravity.CENTER);
+        panel.setPadding(dp(30), dp(30), dp(30), dp(30));
+
+        TextView title = new TextView(this);
+        title.setText(updateAvailable ? "RIVUNE UPDATE REQUIRED" : "RIVUNE SECURITY CHECK");
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 21);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setGravity(Gravity.CENTER);
+        panel.addView(title);
+
+        TextView details = new TextView(this);
+        details.setText(message);
+        details.setTextColor(getColorCompat(R.color.rivune_muted));
+        details.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        details.setGravity(Gravity.CENTER);
+        details.setPadding(0, dp(18), 0, dp(22));
+        panel.addView(details);
+
+        if (updateAvailable && apkUrl != null) {
+            Button update = new Button(this);
+            update.setText("Download latest APK");
+            update.setOnClickListener(view -> {
+                try {
+                    startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(apkUrl)));
+                } catch (Exception ignored) {
+                    details.setText("Unable to open the download link. Please try again.");
+                }
+            });
+            panel.addView(update);
+        } else if (!updateCheckRunning) {
+            Button retry = new Button(this);
+            retry.setText("Retry version check");
+            retry.setOnClickListener(view -> checkAppVersion());
+            panel.addView(retry);
+        }
+
+        root.addView(panel, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+        ));
     }
 
     private int getColorCompat(int colorResource) {
