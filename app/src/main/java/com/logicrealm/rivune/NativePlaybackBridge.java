@@ -14,6 +14,7 @@ import android.webkit.WebView;
 import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MediaMetadata;
+import androidx.media3.common.MimeTypes;
 import androidx.media3.common.Player;
 import androidx.media3.session.MediaController;
 import androidx.media3.session.SessionToken;
@@ -389,6 +390,8 @@ final class NativePlaybackBridge {
             return new MediaItem.Builder()
                     .setMediaId(id)
                     .setUri(Uri.parse(streamUrl))
+                    // RIVUNE's library is MP3; stream.php uses a dynamic URL with no file extension.
+                    .setMimeType(MimeTypes.AUDIO_MPEG)
                     .setMediaMetadata(metadata)
                     .build();
         } catch (RuntimeException error) {

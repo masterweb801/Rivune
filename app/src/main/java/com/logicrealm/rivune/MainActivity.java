@@ -21,7 +21,7 @@ import android.os.Looper;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
-import android.view.WindowManager;
+import android.view.WindowInsets;
 import android.webkit.CookieManager;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
@@ -79,6 +79,10 @@ public class MainActivity extends Activity {
     private boolean updateCheckRunning;
     private boolean updateReceiverRegistered;
     private boolean startupSoundPlayed;
+    private boolean startupSoundFinished = true;
+    private boolean splashPageLoaded;
+    private MediaPlayer startupPlayer;
+    private View offlineView;
     private final BroadcastReceiver updateReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
             if (ACTION_UPDATE_AVAILABLE.equals(intent.getAction())) showSavedMandatoryUpdate();
@@ -89,15 +93,11 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        getWindow().setFlags(
-                WindowManager.LayoutParams.FLAG_FULLSCREEN,
-                WindowManager.LayoutParams.FLAG_FULLSCREEN
-        );
-        hideNavigationBar();
-
         root = new FrameLayout(this);
         root.setBackgroundColor(getColorCompat(R.color.rivune_midnight));
+        root.setClipToPadding(false);
         setContentView(root);
+        applySafeAreaInsets();
 
         scheduleVersionChecks();
         if (!showSavedMandatoryUpdate()) openRivune();
@@ -268,15 +268,39 @@ public class MainActivity extends Activity {
         );
     }
 
-    private void hideNavigationBar() {
-        getWindow().getDecorView().setSystemUiVisibility(
-                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                        | View.SYSTEM_UI_FLAG_FULLSCREEN
-                        | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                        | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                        | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                        | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-        );
+    /** Keep all WebView content inside the status-bar, cutout and navigation safe areas. */
+    private void applySafeAreaInsets() {
+        root.setOnApplyWindowInsetsListener((view, windowInsets) -> {
+            int left;
+            int top;
+            int right;
+            int bottom;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                android.graphics.Insets safe = windowInsets.getInsets(
+                        WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+                left = safe.left;
+                top = safe.top;
+                right = safe.right;
+                bottom = safe.bottom;
+            } else {
+                left = windowInsets.getSystemWindowInsetLeft();
+                top = windowInsets.getSystemWindowInsetTop();
+                right = windowInsets.getSystemWindowInsetRight();
+                bottom = windowInsets.getSystemWindowInsetBottom();
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    android.view.DisplayCutout cutout = windowInsets.getDisplayCutout();
+                    if (cutout != null) {
+                        left = Math.max(left, cutout.getSafeInsetLeft());
+                        top = Math.max(top, cutout.getSafeInsetTop());
+                        right = Math.max(right, cutout.getSafeInsetRight());
+                        bottom = Math.max(bottom, cutout.getSafeInsetBottom());
+                    }
+                }
+            }
+            view.setPadding(left, top, right, bottom);
+            return windowInsets;
+        });
+        root.requestApplyInsets();
     }
 
     private boolean isTrustedUrl(String url) {
@@ -378,36 +402,54 @@ public class MainActivity extends Activity {
         );
         footerParams.bottomMargin = dp(34);
         splash.addView(footer, footerParams);
+        splashPageLoaded = false;
+        startupSoundFinished = false;
         playStartupSound();
         return splash;
     }
 
-    /** Play the bundled cinematic logo sound through Android's media audio stream. */
+    /** Play the splash signature and keep the splash visible until the sound finishes. */
     private void playStartupSound() {
-        if (startupSoundPlayed || isFinishing()) return;
+        if (startupSoundPlayed || isFinishing()) {
+            startupSoundFinished = true;
+            return;
+        }
         startupSoundPlayed = true;
         try {
-            MediaPlayer player = MediaPlayer.create(this, R.raw.rivune_startup);
-            if (player == null) return;
+            startupPlayer = MediaPlayer.create(this, R.raw.rivune_startup);
+            if (startupPlayer == null) {
+                startupSoundFinished = true;
+                hideSplashScreen();
+                return;
+            }
             AudioAttributes attributes = new AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_MEDIA)
                     .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
                     .build();
-            player.setAudioAttributes(attributes);
-            player.setVolume(0.82f, 0.82f);
-            player.setOnCompletionListener(MediaPlayer::release);
-            player.setOnErrorListener((mp, what, extra) -> {
+            startupPlayer.setAudioAttributes(attributes);
+            startupPlayer.setVolume(0.82f, 0.82f);
+            startupPlayer.setOnCompletionListener(mp -> {
                 mp.release();
+                if (startupPlayer == mp) startupPlayer = null;
+                startupSoundFinished = true;
+                hideSplashScreen();
+            });
+            startupPlayer.setOnErrorListener((mp, what, extra) -> {
+                mp.release();
+                if (startupPlayer == mp) startupPlayer = null;
+                startupSoundFinished = true;
+                hideSplashScreen();
                 return true;
             });
-            player.start();
+            startupPlayer.start();
         } catch (RuntimeException ignored) {
-            // Splash audio is optional and must never prevent RIVUNE from opening.
+            startupSoundFinished = true;
+            hideSplashScreen();
         }
     }
 
     private void hideSplashScreen() {
-        if (splashView == null) return;
+        if (!splashPageLoaded || !startupSoundFinished || splashView == null) return;
         View oldSplash = splashView;
         splashView = null;
         oldSplash.animate()
@@ -470,7 +512,19 @@ public class MainActivity extends Activity {
                 @Override
                 public void onPageFinished(WebView view, String url) {
                     if (playbackBridge != null) playbackBridge.onPageFinished(url);
-                    if (isTrustedUrl(url)) hideSplashScreen();
+                    if (isTrustedUrl(url)) {
+                        splashPageLoaded = true;
+                        hideSplashScreen();
+                    }
+                }
+
+                @Override
+                public void onReceivedError(WebView view, WebResourceRequest request,
+                        android.webkit.WebResourceError error) {
+                    super.onReceivedError(view, request, error);
+                    if (request != null && request.isForMainFrame()) {
+                        showOfflineScreen();
+                    }
                 }
 
                 @Override
@@ -494,7 +548,11 @@ public class MainActivity extends Activity {
             root.addView(webView);
             splashView = createSplashScreen();
             root.addView(splashView);
-            webView.loadUrl(START_URL);
+            if (!isNetworkAvailable()) {
+                showOfflineScreen();
+            } else {
+                webView.loadUrl(START_URL);
+            }
         } catch (RuntimeException error) {
             showStartupError(error);
         }
@@ -521,10 +579,63 @@ public class MainActivity extends Activity {
         ));
     }
 
-    @Override
-    public void onWindowFocusChanged(boolean hasFocus) {
-        super.onWindowFocusChanged(hasFocus);
-        if (hasFocus) hideNavigationBar();
+    private boolean isNetworkAvailable() {
+        ConnectivityManager manager =
+                (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+        if (manager == null) return false;
+        Network active = manager.getActiveNetwork();
+        if (active == null) return false;
+        NetworkCapabilities capabilities = manager.getNetworkCapabilities(active);
+        return capabilities != null
+                && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
+    }
+
+    private void showOfflineScreen() {
+        if (root == null || isFinishing()) return;
+        if (splashView != null) {
+            root.removeView(splashView);
+            splashView = null;
+        }
+        if (webView != null) webView.setVisibility(View.GONE);
+        if (offlineView != null) root.removeView(offlineView);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setGravity(Gravity.CENTER);
+        panel.setPadding(dp(30), dp(30), dp(30), dp(30));
+        panel.setBackgroundColor(getColorCompat(R.color.rivune_midnight));
+
+        TextView title = new TextView(this);
+        title.setText("No Internet Connection");
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setGravity(Gravity.CENTER);
+        panel.addView(title);
+
+        Button retry = new Button(this);
+        retry.setText("Retry");
+        retry.setAllCaps(false);
+        retry.setOnClickListener(v -> {
+            if (!isNetworkAvailable()) {
+                return;
+            }
+            root.removeView(panel);
+            offlineView = null;
+            if (webView != null) {
+                webView.setVisibility(View.VISIBLE);
+                webView.loadUrl(START_URL);
+            } else {
+                openRivune();
+            }
+        });
+        LinearLayout.LayoutParams retryParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        retryParams.topMargin = dp(22);
+        panel.addView(retry, retryParams);
+        offlineView = panel;
+        root.addView(panel, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
     }
 
     @Override
@@ -568,6 +679,12 @@ public class MainActivity extends Activity {
         } else if (playbackBridge != null) {
             playbackBridge.release();
             playbackBridge = null;
+        }
+        if (startupPlayer != null) {
+            startupPlayer.setOnCompletionListener(null);
+            startupPlayer.setOnErrorListener(null);
+            startupPlayer.release();
+            startupPlayer = null;
         }
         if (webView != null) {
             webView.stopLoading();
