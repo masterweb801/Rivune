@@ -13,8 +13,7 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.media.AudioAttributes;
-import android.media.AudioFormat;
-import android.media.AudioTrack;
+import android.media.MediaPlayer;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -79,6 +78,7 @@ public class MainActivity extends Activity {
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private boolean updateCheckRunning;
     private boolean updateReceiverRegistered;
+    private boolean startupSoundPlayed;
     private final BroadcastReceiver updateReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
             if (ACTION_UPDATE_AVAILABLE.equals(intent.getAction())) showSavedMandatoryUpdate();
@@ -382,61 +382,28 @@ public class MainActivity extends Activity {
         return splash;
     }
 
-    /** Locally synthesized original cinematic startup signature; never blocks startup. */
+    /** Play the bundled cinematic logo sound through Android's media audio stream. */
     private void playStartupSound() {
-        new Thread(() -> {
-            final int rate = 44100;
-            final double duration = 2.25;
-            short[] pcm = new short[(int)(rate * duration)];
-            double[] pad = {130.81, 164.81, 196.00, 261.63};
-            double[] melody = {523.25, 659.25, 783.99};
-            double[] starts = {0.48, 0.91, 1.34};
-            for (int i = 0; i < pcm.length; i++) {
-                double t = i / (double)rate;
-                double env = Math.max(0, Math.min(1, t / 0.22)
-                        * Math.min(1, (duration - t) / 0.48));
-                double v = 0;
-                for (int n = 0; n < pad.length; n++) {
-                    double phase = 2 * Math.PI * pad[n] * t;
-                    v += Math.sin(phase) * (n == 0 ? 0.10 : 0.065)
-                            + Math.sin(phase * 2) * 0.012;
-                }
-                for (int n = 0; n < melody.length; n++) {
-                    double local = t - starts[n];
-                    if (local >= 0 && local < 0.72) {
-                        double e = Math.exp(-local * 4.2) * Math.min(1, local / 0.018);
-                        double phase = 2 * Math.PI * melody[n] * local;
-                        v += Math.sin(phase) * 0.22 * e + Math.sin(phase * 2.01) * 0.055 * e;
-                    }
-                }
-                v += Math.sin(2 * Math.PI * 1046.5 * t)
-                        * 0.018 * Math.exp(-Math.max(0, t - 1.45) * 2.2);
-                pcm[i] = (short)(Math.max(-1, Math.min(1, v * env * 0.78)) * 32767);
-            }
-            AudioTrack track = null;
-            try {
-                AudioAttributes attrs = new AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build();
-                AudioFormat format = new AudioFormat.Builder()
-                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(rate)
-                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build();
-                track = new AudioTrack.Builder().setAudioAttributes(attrs).setAudioFormat(format)
-                        .setTransferMode(AudioTrack.MODE_STATIC).setBufferSizeInBytes(pcm.length * 2)
-                        .build();
-                track.write(pcm, 0, pcm.length);
-                track.setVolume(0.72f);
-                track.play();
-                Thread.sleep(2400L);
-            } catch (Exception ignored) {
-                // Sound is decorative and must never prevent app startup.
-            } finally {
-                if (track != null) {
-                    try { track.stop(); } catch (Exception ignored) { }
-                    track.release();
-                }
-            }
-        }, "RivuneStartupSound").start();
+        if (startupSoundPlayed || isFinishing()) return;
+        startupSoundPlayed = true;
+        try {
+            MediaPlayer player = MediaPlayer.create(this, R.raw.rivune_startup);
+            if (player == null) return;
+            AudioAttributes attributes = new AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .build();
+            player.setAudioAttributes(attributes);
+            player.setVolume(0.82f, 0.82f);
+            player.setOnCompletionListener(MediaPlayer::release);
+            player.setOnErrorListener((mp, what, extra) -> {
+                mp.release();
+                return true;
+            });
+            player.start();
+        } catch (RuntimeException ignored) {
+            // Splash audio is optional and must never prevent RIVUNE from opening.
+        }
     }
 
     private void hideSplashScreen() {
