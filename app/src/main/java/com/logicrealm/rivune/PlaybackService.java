@@ -101,8 +101,30 @@ public final class PlaybackService extends MediaSessionService {
         return mediaSession;
     }
 
+    /**
+     * Android calls this when the user removes the app task from Recents.
+     * A media service otherwise may outlive its Activity and finish a queued
+     * network load later, unexpectedly starting audio after the UI is gone.
+     */
+    @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        stopPlaybackImmediately();
+        stopSelf();
+        super.onTaskRemoved(rootIntent);
+    }
+
+    private void stopPlaybackImmediately() {
+        if (player != null) {
+            player.pause();
+            player.stop();
+            player.clearMediaItems();
+        }
+        stopForeground(STOP_FOREGROUND_REMOVE);
+    }
+
     @Override
     public void onDestroy() {
+        stopPlaybackImmediately();
         if (mediaSession != null) {
             mediaSession.release();
             mediaSession = null;

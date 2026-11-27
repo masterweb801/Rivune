@@ -291,8 +291,18 @@ public class MainActivity extends Activity {
         if (webView != null && webView.canGoBack()) {
             webView.goBack();
         } else {
+            // An explicit Back-button exit must also terminate native playback.
+            stopPlaybackService();
             super.onBackPressed();
         }
+    }
+
+    private void stopPlaybackService() {
+        if (playbackBridge != null) {
+            playbackBridge.release();
+            playbackBridge = null;
+        }
+        stopService(new android.content.Intent(this, PlaybackService.class));
     }
 
     @Override
@@ -308,7 +318,12 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        if (playbackBridge != null) {
+        // Do not stop audio merely because the Activity is temporarily recreated.
+        // isFinishing() identifies a real Activity exit; task-swipe cleanup is
+        // independently handled by PlaybackService.onTaskRemoved().
+        if (isFinishing()) {
+            stopPlaybackService();
+        } else if (playbackBridge != null) {
             playbackBridge.release();
             playbackBridge = null;
         }
