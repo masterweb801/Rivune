@@ -295,7 +295,7 @@ public class MainActivity extends Activity {
 
             if (!updateAvailable) {
                 Button retry = new Button(this);
-                retry.setText(offline ? "Check internet connection again" : "Retry");
+                retry.setText("Retry");
                 retry.setOnClickListener(view -> {
                     if (offline) retryInternetConnection();
                     else checkAppVersion();
