@@ -70,7 +70,17 @@ jobs:
           set -euo pipefail
           APK="app/build/outputs/apk/release/app-release.apk"
           EXPECTED="dc44ed95e4597b953fd4d335c4a0587f9d8c4f27c964bf9750df18a3e9e2bfdf"
-          ACTUAL=$(apksigner verify --print-certs "$APK" | awk -F': ' '/certificate SHA-256 digest:/ {print tolower($2); exit}')
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          if [[ -z "$SDK_ROOT" || ! -d "$SDK_ROOT/build-tools" ]]; then
+            echo "::error::Android SDK build-tools directory was not found."
+            exit 1
+          fi
+          APKSIGNER=$(find "$SDK_ROOT/build-tools" -type f -name apksigner | sort -V | tail -n 1)
+          if [[ -z "$APKSIGNER" || ! -x "$APKSIGNER" ]]; then
+            echo "::error::apksigner was not found in Android SDK build-tools."
+            exit 1
+          fi
+          ACTUAL=$("$APKSIGNER" verify --print-certs "$APK" | awk -F': ' '/certificate SHA-256 digest:/ {print tolower($2); exit}')
           if [[ "$ACTUAL" != "$EXPECTED" ]]; then
             echo "::error::Test APK signing certificate does not match the installed RIVUNE app."
             echo "Expected: $EXPECTED"
