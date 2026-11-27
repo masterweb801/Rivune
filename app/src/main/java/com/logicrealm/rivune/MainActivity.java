@@ -152,10 +152,11 @@ public class MainActivity extends Activity {
                         .putString(PREF_LATEST_VERSION, latestVersion)
                         .putString(PREF_APK_URL, apkUrl)
                         .apply();
+                final String resolvedApkUrl = apkUrl;
                 mainHandler.post(() -> {
                     updateCheckRunning = false;
                     if (isFinishing() || isDestroyed()) return;
-                    applyReleaseResult(latestVersion, apkUrl);
+                    applyReleaseResult(latestVersion, resolvedApkUrl);
                 });
             } catch (Exception error) {
                 mainHandler.post(() -> {
