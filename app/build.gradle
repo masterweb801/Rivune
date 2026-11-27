@@ -68,6 +68,7 @@ dependencies {
     def media3Version = '1.9.4'
     implementation "androidx.media3:media3-exoplayer:$media3Version"
     implementation "androidx.media3:media3-session:$media3Version"
+    implementation "androidx.work:work-runtime:2.10.1"
 }
 
 // Fail the release build early rather than silently producing an unsigned APK.
