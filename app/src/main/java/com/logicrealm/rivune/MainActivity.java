@@ -2,6 +2,9 @@ package com.logicrealm.rivune;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -75,6 +78,19 @@ public class MainActivity extends Activity {
         new Thread(() -> {
             HttpURLConnection connection = null;
             try {
+                if (!hasInternetConnection()) {
+                    mainHandler.post(() -> {
+                        updateCheckRunning = false;
+                        if (isFinishing() || isDestroyed()) return;
+                        showVersionGate(
+                                "No internet connection was detected. Connect to Wi-Fi or mobile data, then try again. RIVUNE needs an internet connection to verify app updates.",
+                                false,
+                                null
+                        );
+                    });
+                    return;
+                }
+
                 connection = (HttpURLConnection) new URL(LATEST_RELEASE_API).openConnection();
                 connection.setRequestMethod("GET");
                 connection.setConnectTimeout(7000);
@@ -141,6 +157,21 @@ public class MainActivity extends Activity {
                 if (connection != null) connection.disconnect();
             }
         }, "RivuneVersionCheck").start();
+    }
+
+    /** Returns true only when Android reports a validated internet connection. */
+    private boolean hasInternetConnection() {
+        ConnectivityManager manager =
+                (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+        if (manager == null) return false;
+
+        Network activeNetwork = manager.getActiveNetwork();
+        if (activeNetwork == null) return false;
+
+        NetworkCapabilities capabilities = manager.getNetworkCapabilities(activeNetwork);
+        return capabilities != null
+                && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
     }
 
     private int compareVersions(String installed, String latest) {
