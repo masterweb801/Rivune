@@ -18,10 +18,17 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
+
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 import android.webkit.CookieManager;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
@@ -79,6 +86,17 @@ public class MainActivity extends Activity {
     private boolean updateCheckRunning;
     private boolean updateReceiverRegistered;
     private boolean startupSoundPlayed;
+    private long splashStartedAt;
+    private boolean splashPageLoaded;
+    private static final long SPLASH_MIN_DURATION_MS = 2500L;
+    private final Runnable dismissSplashRunnable = () -> {
+        if (!splashPageLoaded || splashView == null) return;
+        View oldSplash = splashView;
+        splashView = null;
+        oldSplash.animate().alpha(0f).setDuration(180).withEndAction(() -> {
+            if (root != null) root.removeView(oldSplash);
+        }).start();
+    };
     private final BroadcastReceiver updateReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
             if (ACTION_UPDATE_AVAILABLE.equals(intent.getAction())) showSavedMandatoryUpdate();
@@ -89,11 +107,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        getWindow().setFlags(
-                WindowManager.LayoutParams.FLAG_FULLSCREEN,
-                WindowManager.LayoutParams.FLAG_FULLSCREEN
-        );
-        hideNavigationBar();
+        configureSafeArea();
 
         root = new FrameLayout(this);
         root.setBackgroundColor(getColorCompat(R.color.rivune_midnight));
@@ -268,15 +282,28 @@ public class MainActivity extends Activity {
         );
     }
 
-    private void hideNavigationBar() {
-        getWindow().getDecorView().setSystemUiVisibility(
-                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                        | View.SYSTEM_UI_FLAG_FULLSCREEN
-                        | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                        | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                        | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                        | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-        );
+    /** Keep the WebView inside the display cutout and system-bar safe area. */
+    private void configureSafeArea() {
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        getWindow().setStatusBarColor(getColorCompat(R.color.rivune_midnight));
+        getWindow().setNavigationBarColor(Color.BLACK);
+        View decor = getWindow().getDecorView();
+        decor.setSystemUiVisibility(0);
+        WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(getWindow(), decor);
+        controller.setAppearanceLightStatusBars(false);
+        controller.setAppearanceLightNavigationBars(false);
+        if (root != null) {
+            ViewCompat.setOnApplyWindowInsetsListener(root, (view, windowInsets) -> {
+                Insets safe = windowInsets.getInsets(
+                        WindowInsetsCompat.Type.systemBars()
+                                | WindowInsetsCompat.Type.displayCutout()
+                );
+                view.setPadding(safe.left, safe.top, safe.right, safe.bottom);
+                return windowInsets;
+            });
+            ViewCompat.requestApplyInsets(root);
+        }
     }
 
     private boolean isTrustedUrl(String url) {
@@ -288,6 +315,8 @@ public class MainActivity extends Activity {
     }
 
     private View createSplashScreen() {
+        splashStartedAt = SystemClock.elapsedRealtime();
+        splashPageLoaded = false;
         FrameLayout splash = new FrameLayout(this);
         splash.setBackgroundColor(getColorCompat(R.color.rivune_midnight));
         splash.setClickable(true);
@@ -406,20 +435,32 @@ public class MainActivity extends Activity {
         }
     }
 
+    /** Dismiss only after both the page is ready and the 2.5-second signature finishes. */
     private void hideSplashScreen() {
-        if (splashView == null) return;
-        View oldSplash = splashView;
-        splashView = null;
-        oldSplash.animate()
-                .alpha(0f)
-                .setDuration(180)
-                .withEndAction(() -> {
-                    if (root != null) root.removeView(oldSplash);
-                })
-                .start();
+        splashPageLoaded = true;
+        long elapsed = SystemClock.elapsedRealtime() - splashStartedAt;
+        long remaining = Math.max(0L, SPLASH_MIN_DURATION_MS - elapsed);
+        mainHandler.removeCallbacks(dismissSplashRunnable);
+        if (remaining == 0L) dismissSplashRunnable.run();
+        else mainHandler.postDelayed(dismissSplashRunnable, remaining);
+    }
+
+    private boolean hasInternetConnection() {
+        ConnectivityManager manager = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+        if (manager == null) return false;
+        Network network = manager.getActiveNetwork();
+        if (network == null) return false;
+        NetworkCapabilities capabilities = manager.getNetworkCapabilities(network);
+        return capabilities != null
+                && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
     }
 
     private void openRivune() {
+        if (!hasInternetConnection()) {
+            showOfflineScreen();
+            return;
+        }
         try {
             webView = new WebView(this);
             webView.setBackgroundColor(Color.BLACK);
@@ -474,6 +515,15 @@ public class MainActivity extends Activity {
                 }
 
                 @Override
+                public void onReceivedError(WebView view, WebResourceRequest request,
+                        android.webkit.WebResourceError error) {
+                    super.onReceivedError(view, request, error);
+                    if (request.isForMainFrame() && isConnectionError(error.getErrorCode())) {
+                        runOnUiThread(() -> showOfflineScreen());
+                    }
+                }
+
+                @Override
                 public boolean onRenderProcessGone(WebView view,
                         android.webkit.RenderProcessGoneDetail detail) {
                     if (view != null) {
@@ -500,6 +550,56 @@ public class MainActivity extends Activity {
         }
     }
 
+    private boolean isConnectionError(int code) {
+        return code == WebViewClient.ERROR_HOST_LOOKUP
+                || code == WebViewClient.ERROR_CONNECT
+                || code == WebViewClient.ERROR_TIMEOUT
+                || code == WebViewClient.ERROR_IO
+                || code == WebViewClient.ERROR_UNKNOWN;
+    }
+
+    /** Minimal offline state: one message and a one-word retry action. */
+    private void showOfflineScreen() {
+        mainHandler.removeCallbacks(dismissSplashRunnable);
+        splashPageLoaded = false;
+        splashView = null;
+        if (playbackBridge != null) {
+            playbackBridge.release();
+            playbackBridge = null;
+        }
+        if (webView != null) {
+            webView.stopLoading();
+            webView.setWebViewClient(null);
+            webView.setWebChromeClient(null);
+            webView.removeJavascriptInterface("RivuneNative");
+            webView.destroy();
+            webView = null;
+        }
+        root.removeAllViews();
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setGravity(Gravity.CENTER);
+        panel.setPadding(dp(28), dp(28), dp(28), dp(28));
+        TextView title = new TextView(this);
+        title.setText("No Internet Connection");
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 21);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setGravity(Gravity.CENTER);
+        panel.addView(title);
+        Button retry = new Button(this);
+        retry.setText("Retry");
+        LinearLayout.LayoutParams retryParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        retryParams.topMargin = dp(20);
+        panel.addView(retry, retryParams);
+        retry.setOnClickListener(view -> {
+            if (hasInternetConnection()) openRivune();
+        });
+        root.addView(panel, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+    }
+
     private void showStartupError(RuntimeException error) {
         splashView = null;
         TextView message = new TextView(this);
@@ -524,7 +624,7 @@ public class MainActivity extends Activity {
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
-        if (hasFocus) hideNavigationBar();
+        if (hasFocus) configureSafeArea();
     }
 
     @Override
