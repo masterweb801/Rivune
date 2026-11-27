@@ -1,6 +1,9 @@
 package com.logicrealm.rivune;
 
 import android.app.Activity;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.IntentFilter;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.ConnectivityManager;
@@ -9,6 +12,8 @@ import android.net.NetworkCapabilities;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.media.AudioAttributes;
+import android.media.MediaPlayer;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -28,6 +33,16 @@ import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+
+import androidx.work.Constraints;
+import androidx.work.ExistingPeriodicWorkPolicy;
+import androidx.work.ExistingWorkPolicy;
+import androidx.work.NetworkType;
+import androidx.work.OneTimeWorkRequest;
+import androidx.work.PeriodicWorkRequest;
+import androidx.work.WorkManager;
+
+import java.util.concurrent.TimeUnit;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -49,6 +64,11 @@ public class MainActivity extends Activity {
     private static final String PREF_LAST_CHECK = "last_successful_check";
     private static final String PREF_LATEST_VERSION = "latest_version";
     private static final String PREF_APK_URL = "latest_apk_url";
+    private static final String PREF_UPDATE_REQUIRED = "update_required";
+    private static final String PREF_REQUIRED_VERSION = "required_version";
+    private static final String PREF_REQUIRED_APK_URL = "required_apk_url";
+    private static final String PREF_INITIAL_WORK_SCHEDULED = "initial_work_scheduled";
+    private static final String ACTION_UPDATE_AVAILABLE = "com.logicrealm.rivune.UPDATE_AVAILABLE";
     private static final long UPDATE_CHECK_INTERVAL_MS = 24L * 60L * 60L * 1000L;
 
     private FrameLayout root;
@@ -57,6 +77,13 @@ public class MainActivity extends Activity {
     private View splashView;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private boolean updateCheckRunning;
+    private boolean updateReceiverRegistered;
+    private boolean startupSoundPlayed;
+    private final BroadcastReceiver updateReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) {
+            if (ACTION_UPDATE_AVAILABLE.equals(intent.getAction())) showSavedMandatoryUpdate();
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -72,159 +99,68 @@ public class MainActivity extends Activity {
         root.setBackgroundColor(getColorCompat(R.color.rivune_midnight));
         setContentView(root);
 
-        checkAppVersion();
+        scheduleVersionChecks();
+        if (!showSavedMandatoryUpdate()) openRivune();
     }
 
-    /** Verify the native APK version before creating the WebView or exposing the website. */
-    private void checkAppVersion() {
-        if (updateCheckRunning) return;
-        updateCheckRunning = true;
-        showVersionGate("Checking your internet connection…", false, null);
-
-        new Thread(() -> {
-            HttpURLConnection connection = null;
-            try {
-                // Connectivity must be checked on every launch, even when the
-                // once-daily release result is still cached.
-                if (!hasInternetConnection()) {
-                    mainHandler.post(() -> {
-                        updateCheckRunning = false;
-                        if (isFinishing() || isDestroyed()) return;
-                        showVersionGate(
-                                "OFFLINE:No internet connection. Please connect to Wi-Fi or mobile data and try again.",
-                                false,
-                                null
-                        );
-                    });
-                    return;
-                }
-
-                SharedPreferences prefs = getSharedPreferences(UPDATE_PREFS, MODE_PRIVATE);
-                long lastCheck = prefs.getLong(PREF_LAST_CHECK, 0L);
-                String cachedVersion = prefs.getString(PREF_LATEST_VERSION, null);
-                String cachedApkUrl = prefs.getString(PREF_APK_URL, null);
-                if (lastCheck > 0L
-                        && System.currentTimeMillis() - lastCheck < UPDATE_CHECK_INTERVAL_MS
-                        && cachedVersion != null && !cachedVersion.isEmpty()
-                        && cachedApkUrl != null && !cachedApkUrl.isEmpty()) {
-                    mainHandler.post(() -> {
-                        updateCheckRunning = false;
-                        if (isFinishing() || isDestroyed()) return;
-                        applyReleaseResult(cachedVersion, cachedApkUrl);
-                    });
-                    return;
-                }
-
-                connection = (HttpURLConnection) new URL(LATEST_RELEASE_API).openConnection();
-                connection.setRequestMethod("GET");
-                connection.setConnectTimeout(7000);
-                connection.setReadTimeout(7000);
-                connection.setRequestProperty("Accept", "application/vnd.github+json");
-                connection.setRequestProperty("User-Agent", "RIVUNE-Android-App");
-
-                int status = connection.getResponseCode();
-                if (status != HttpURLConnection.HTTP_OK) {
-                    throw new IllegalStateException("GitHub returned HTTP " + status);
-                }
-
-                StringBuilder response = new StringBuilder();
-                try (InputStream input = connection.getInputStream();
-                     BufferedReader reader = new BufferedReader(new InputStreamReader(input))) {
-                    String line;
-                    while ((line = reader.readLine()) != null) response.append(line);
-                }
-
-                JSONObject release = new JSONObject(response.toString());
-                String latestVersion = release.optString("tag_name", "").trim();
-                String apkUrl = null;
-                JSONArray assets = release.optJSONArray("assets");
-                if (assets != null) {
-                    for (int i = 0; i < assets.length(); i++) {
-                        JSONObject asset = assets.optJSONObject(i);
-                        if (asset == null) continue;
-                        String name = asset.optString("name", "");
-                        if (name.toLowerCase(java.util.Locale.ROOT).endsWith(".apk")) {
-                            apkUrl = asset.optString("browser_download_url", null);
-                            break;
-                        }
-                    }
-                }
-                if (latestVersion.isEmpty() || apkUrl == null || apkUrl.isEmpty()) {
-                    throw new IllegalStateException("The latest GitHub release has no valid APK asset");
-                }
-
-                SharedPreferences releasePrefs = getSharedPreferences(UPDATE_PREFS, MODE_PRIVATE);
-                releasePrefs.edit()
-                        .putLong(PREF_LAST_CHECK, System.currentTimeMillis())
-                        .putString(PREF_LATEST_VERSION, latestVersion)
-                        .putString(PREF_APK_URL, apkUrl)
-                        .apply();
-                final String resolvedApkUrl = apkUrl;
-                mainHandler.post(() -> {
-                    updateCheckRunning = false;
-                    if (isFinishing() || isDestroyed()) return;
-                    applyReleaseResult(latestVersion, resolvedApkUrl);
-                });
-            } catch (Exception error) {
-                mainHandler.post(() -> {
-                    updateCheckRunning = false;
-                    if (isFinishing() || isDestroyed()) return;
-                    showVersionGate("RIVUNE couldn't verify the latest app version. "
-                            + "For your security, access is locked until the update check succeeds.\n\n"
-                            + error.getMessage(), false, null);
-                });
-            } finally {
-                if (connection != null) connection.disconnect();
-            }
-        }, "RivuneVersionCheck").start();
-    }
-
-    private void applyReleaseResult(String latestVersion, String apkUrl) {
-        try {
-            String installedVersion = getPackageManager()
-                    .getPackageInfo(getPackageName(), 0).versionName;
-            boolean updateRequired = compareVersions(installedVersion, latestVersion) < 0;
-            if (updateRequired) {
-                showVersionGate("A required RIVUNE update is available. Update to version "
-                        + latestVersion + " to continue.", true, apkUrl);
-            } else {
-                openRivune();
-            }
-        } catch (Exception error) {
-            showVersionGate("Unable to check for updates right now. Please try again.", false, null);
+    /** Start an immediate first check and then a network-constrained daily check. */
+    private void scheduleVersionChecks() {
+        Constraints constraints = new Constraints.Builder()
+                .setRequiredNetworkType(NetworkType.CONNECTED).build();
+        PeriodicWorkRequest daily = new PeriodicWorkRequest.Builder(
+                VersionCheckWorker.class, 24, TimeUnit.HOURS)
+                .setConstraints(constraints).build();
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+                "rivune-daily-version-check", ExistingPeriodicWorkPolicy.KEEP, daily);
+        SharedPreferences prefs = getSharedPreferences(UPDATE_PREFS, MODE_PRIVATE);
+        if (!prefs.getBoolean(PREF_INITIAL_WORK_SCHEDULED, false)) {
+            OneTimeWorkRequest first = new OneTimeWorkRequest.Builder(VersionCheckWorker.class)
+                    .setConstraints(constraints).build();
+            WorkManager.getInstance(this).enqueueUniqueWork(
+                    "rivune-first-version-check", ExistingWorkPolicy.KEEP, first);
+            prefs.edit().putBoolean(PREF_INITIAL_WORK_SCHEDULED, true).apply();
         }
     }
 
-    private void retryInternetConnection() {
-        if (updateCheckRunning) return;
-        updateCheckRunning = true;
-        showVersionGate("Checking your internet connection…", false, null);
-        new Thread(() -> {
-            boolean connected = hasInternetConnection();
-            mainHandler.post(() -> {
-                updateCheckRunning = false;
-                if (isFinishing() || isDestroyed()) return;
-                if (connected) checkAppVersion();
-                else showVersionGate(
-                        "OFFLINE:No internet connection. Please connect to Wi-Fi or mobile data and try again.",
-                        false, null);
-            });
-        }, "RivuneConnectivityCheck").start();
+    /** A detected mandatory update remains enforced across app restarts. */
+    private boolean showSavedMandatoryUpdate() {
+        SharedPreferences prefs = getSharedPreferences(UPDATE_PREFS, MODE_PRIVATE);
+        if (!prefs.getBoolean(PREF_UPDATE_REQUIRED, false)) return false;
+        String requiredVersion = prefs.getString(PREF_REQUIRED_VERSION, "");
+        String apkUrl = prefs.getString(PREF_REQUIRED_APK_URL, "");
+        try {
+            String installed = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+            if (requiredVersion == null || requiredVersion.isEmpty()
+                    || compareVersions(installed, requiredVersion) >= 0) {
+                prefs.edit().putBoolean(PREF_UPDATE_REQUIRED, false)
+                        .remove(PREF_REQUIRED_VERSION).remove(PREF_REQUIRED_APK_URL).apply();
+                return false;
+            }
+            showVersionGate("A required RIVUNE update is available. Update to version "
+                    + requiredVersion + " to continue.", true, apkUrl);
+            return true;
+        } catch (Exception error) {
+            showVersionGate("A required RIVUNE update is available. Please update to continue.",
+                    true, apkUrl);
+            return true;
+        }
     }
 
-    /** Returns true only when Android reports a validated internet connection. */
-    private boolean hasInternetConnection() {
-        ConnectivityManager manager =
-                (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
-        if (manager == null) return false;
+    @Override protected void onStart() {
+        super.onStart();
+        IntentFilter filter = new IntentFilter(ACTION_UPDATE_AVAILABLE);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+            registerReceiver(updateReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        else registerReceiver(updateReceiver, filter);
+        updateReceiverRegistered = true;
+    }
 
-        Network activeNetwork = manager.getActiveNetwork();
-        if (activeNetwork == null) return false;
-
-        NetworkCapabilities capabilities = manager.getNetworkCapabilities(activeNetwork);
-        return capabilities != null
-                && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
+    @Override protected void onStop() {
+        if (updateReceiverRegistered) {
+            unregisterReceiver(updateReceiver);
+            updateReceiverRegistered = false;
+        }
+        super.onStop();
     }
 
     private int compareVersions(String installed, String latest) {
@@ -305,8 +241,8 @@ public class MainActivity extends Activity {
                 Button retry = new Button(this);
                 retry.setText("Retry");
                 retry.setOnClickListener(view -> {
-                    if (offline) retryInternetConnection();
-                    else checkAppVersion();
+                    scheduleVersionChecks();
+                    details.setText("RIVUNE will check for updates in the background when internet is available.");
                 });
                 panel.addView(retry);
             }
@@ -371,6 +307,10 @@ public class MainActivity extends Activity {
         rivuneLogo.setScaleType(ImageView.ScaleType.FIT_CENTER);
         rivuneLogo.setContentDescription("RIVUNE logo");
         center.addView(rivuneLogo, new LinearLayout.LayoutParams(dp(126), dp(126)));
+        rivuneLogo.setAlpha(0f);
+        rivuneLogo.setScaleX(0.72f); rivuneLogo.setScaleY(0.72f);
+        rivuneLogo.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(950)
+                .setInterpolator(new android.view.animation.OvershootInterpolator(0.7f)).start();
 
         TextView rivuneName = new TextView(this);
         rivuneName.setText("RIVUNE");
@@ -385,6 +325,9 @@ public class MainActivity extends Activity {
         );
         nameParams.topMargin = dp(17);
         center.addView(rivuneName, nameParams);
+        rivuneName.setAlpha(0f); rivuneName.setTranslationY(dp(16));
+        rivuneName.animate().alpha(1f).translationY(0f).setStartDelay(320).setDuration(650)
+                .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
         splash.addView(center, centerParams);
 
         LinearLayout footer = new LinearLayout(this);
@@ -424,6 +367,9 @@ public class MainActivity extends Activity {
         );
         brandRowParams.topMargin = dp(5);
         footer.addView(brandRow, brandRowParams);
+        footer.setAlpha(0f); footer.setTranslationY(dp(12));
+        footer.animate().alpha(1f).translationY(0f).setStartDelay(620).setDuration(700)
+                .setInterpolator(new android.view.animation.DecelerateInterpolator()).start();
 
         FrameLayout.LayoutParams footerParams = new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT,
@@ -432,8 +378,32 @@ public class MainActivity extends Activity {
         );
         footerParams.bottomMargin = dp(34);
         splash.addView(footer, footerParams);
-
+        playStartupSound();
         return splash;
+    }
+
+    /** Play the bundled cinematic logo sound through Android's media audio stream. */
+    private void playStartupSound() {
+        if (startupSoundPlayed || isFinishing()) return;
+        startupSoundPlayed = true;
+        try {
+            MediaPlayer player = MediaPlayer.create(this, R.raw.rivune_startup);
+            if (player == null) return;
+            AudioAttributes attributes = new AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .build();
+            player.setAudioAttributes(attributes);
+            player.setVolume(0.82f, 0.82f);
+            player.setOnCompletionListener(MediaPlayer::release);
+            player.setOnErrorListener((mp, what, extra) -> {
+                mp.release();
+                return true;
+            });
+            player.start();
+        } catch (RuntimeException ignored) {
+            // Splash audio is optional and must never prevent RIVUNE from opening.
+        }
     }
 
     private void hideSplashScreen() {
@@ -585,6 +555,7 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         if (webView != null) webView.onResume();
+        showSavedMandatoryUpdate();
     }
 
     @Override
