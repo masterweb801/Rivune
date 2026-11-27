@@ -170,7 +170,7 @@ public class MainActivity extends Activity {
                     updateCheckRunning = false;
                     if (isFinishing() || isDestroyed()) return;
                     showVersionGate("RIVUNE couldn't verify the latest app version. "
-                            + "For your security, access is locked until the update check succeeds.\\n\\n"
+                            + "For your security, access is locked until the update check succeeds.\n\n"
                             + error.getMessage(), false, null);
                 });
             } finally {
